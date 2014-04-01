@@ -22,18 +22,14 @@
 #ifndef AWESOME_GLOBALCONF_H
 #define AWESOME_GLOBALCONF_H
 
-#define SN_API_NOT_YET_FROZEN
-#include <libsn/sn.h>
-
 #include <glib.h>
 
-#include <xcb/xcb_icccm.h>
 #include <xcb/xcb_keysyms.h>
-#include <xcb/xcb_cursor.h>
 
-#include "objects/key.h"
-#include "common/xembed.h"
 #include "common/buffer.h"
+#include "common/xembed.h"
+#include "objects/key.h"
+#include "protocol_screen.h"
 
 #define ROOT_WINDOW_EVENT_MASK \
     (const uint32_t []) { \
@@ -56,7 +52,6 @@ typedef struct tag tag_t;
 typedef struct xproperty xproperty_t;
 
 ARRAY_TYPE(button_t *, button)
-ARRAY_TYPE(tag_t *, tag)
 ARRAY_TYPE(screen_t *, screen)
 ARRAY_TYPE(client_t *, client)
 ARRAY_TYPE(drawin_t *, drawin)
@@ -67,14 +62,13 @@ typedef struct
 {
     /** Connection ref */
     xcb_connection_t *connection;
-    /** Default screen number */
-    int default_screen;
-    /** xcb-cursor context */
-    xcb_cursor_context_t *cursor_ctx;
     /** Keys symbol table */
     xcb_key_symbols_t *keysyms;
     /** Logical screens */
     screen_array_t screens;
+    /** Protocol screens */
+    protocol_screen_array_t protocol_screens;
+    protocol_screen_t *protocol_screen; /* XXX FIXME: Ugly hack so I don't have to fix everything at once */
     /** Root window key bindings */
     key_array_t keys;
     /** Root window mouse bindings */
@@ -111,35 +105,10 @@ typedef struct
     } focus;
     /** Drawins */
     drawin_array_t drawins;
-    /** The startup notification display struct */
-    SnDisplay *sndisplay;
     /** Latest timestamp we got from the X server */
     xcb_timestamp_t timestamp;
-    /** Window that contains the systray */
-    struct
-    {
-        xcb_window_t window;
-        /** Systray window parent */
-        drawin_t *parent;
-    } systray;
-    /** The monitor of startup notifications */
-    SnMonitorContext *snmonitor;
-    /** The visual, used to draw */
-    xcb_visualtype_t *visual;
-    /** The screen's default visual */
-    xcb_visualtype_t *default_visual;
-    /** The screen's information */
-    xcb_screen_t *screen;
-    /** A graphic context. */
-    xcb_gcontext_t gc;
-    /** Our default depth */
-    uint8_t default_depth;
-    /** Our default color map */
-    xcb_colormap_t default_cmap;
     /** Do we have to reban clients? */
     bool need_lazy_banning;
-    /** Tag list */
-    tag_array_t tags;
     /** List of registered xproperties */
     xproperty_array_t xproperties;
 } awesome_t;

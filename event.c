@@ -222,7 +222,7 @@ event_handle_button(xcb_button_press_event_t *ev)
                          XCB_CURRENT_TIME);
     }
     else if(ev->child == XCB_NONE)
-        if(globalconf.screen->root == ev->event)
+        if(globalconf.protocol_screen->screen->root == ev->event)
         {
             event_button_callback(ev, &globalconf.buttons, 0, 0, NULL);
             return;
@@ -346,7 +346,7 @@ event_handle_configurerequest(xcb_configure_request_event_t *ev)
 static void
 event_handle_configurenotify(xcb_configure_notify_event_t *ev)
 {
-    const xcb_screen_t *screen = globalconf.screen;
+    const xcb_screen_t *screen = globalconf.protocol_screen->screen;
 
     if(ev->window == screen->root
        && (ev->width != screen->width_in_pixels
@@ -712,7 +712,7 @@ static void
 event_handle_clientmessage(xcb_client_message_event_t *ev)
 {
     /* check for startup notification messages */
-    if(sn_xcb_display_process_event(globalconf.sndisplay, (xcb_generic_event_t *) ev))
+    if(sn_xcb_display_process_event(globalconf.protocol_screen->sndisplay, (xcb_generic_event_t *) ev))
         return;
 
     if(ev->type == WM_CHANGE_STATE)
@@ -757,7 +757,7 @@ event_handle_mappingnotify(xcb_mapping_notify_event_t *ev)
                             &globalconf.modeswitchmask);
 
         /* regrab everything */
-        xcb_screen_t *s = globalconf.screen;
+        xcb_screen_t *s = globalconf.protocol_screen->screen;
         /* yes XCB_BUTTON_MASK_ANY is also for grab_key even if it's look weird */
         xcb_ungrab_key(globalconf.connection, XCB_GRAB_ANY, s->root, XCB_BUTTON_MASK_ANY);
         xwindow_grabkeys(s->root, &globalconf.keys);
@@ -780,7 +780,7 @@ event_handle_reparentnotify(xcb_reparent_notify_event_t *ev)
     {
         /* Ignore reparents to the root window, they *might* be caused by
          * ourselves if a client quickly unmaps and maps itself again. */
-        if (ev->parent != globalconf.screen->root)
+        if (ev->parent != globalconf.protocol_screen->screen->root)
             client_unmanage(c, true);
     }
 }

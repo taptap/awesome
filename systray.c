@@ -36,11 +36,11 @@
 void
 systray_init(void)
 {
-    xcb_screen_t *xscreen = globalconf.screen;
+    xcb_screen_t *xscreen = globalconf.protocol_screen->screen;
 
-    globalconf.systray.window = xcb_generate_id(globalconf.connection);
+    globalconf.protocol_screen->systray.window = xcb_generate_id(globalconf.connection);
     xcb_create_window(globalconf.connection, xscreen->root_depth,
-                      globalconf.systray.window,
+                      globalconf.protocol_screen->systray.window,
                       xscreen->root,
                       -1, -1, 1, 1, 0,
                       XCB_COPY_FROM_PARENT, xscreen->root_visual,
@@ -53,14 +53,14 @@ static void
 systray_register(void)
 {
     xcb_client_message_event_t ev;
-    xcb_screen_t *xscreen = globalconf.screen;
+    xcb_screen_t *xscreen = globalconf.protocol_screen->screen;
     char *atom_name;
     xcb_intern_atom_cookie_t atom_systray_q;
     xcb_intern_atom_reply_t *atom_systray_r;
     xcb_atom_t atom_systray;
 
     /* Send requests */
-    if(!(atom_name = xcb_atom_name_by_screen("_NET_SYSTEM_TRAY", globalconf.default_screen)))
+    if(!(atom_name = xcb_atom_name_by_screen("_NET_SYSTEM_TRAY", globalconf.protocol_screen->screen_number)))
     {
         warn("error getting systray atom");
         return;
@@ -78,7 +78,7 @@ systray_register(void)
     ev.format = 32;
     ev.type = MANAGER;
     ev.data.data32[0] = XCB_CURRENT_TIME;
-    ev.data.data32[2] = globalconf.systray.window;
+    ev.data.data32[2] = globalconf.protocol_screen->systray.window;
     ev.data.data32[3] = ev.data.data32[4] = 0;
 
     if(!(atom_systray_r = xcb_intern_atom_reply(globalconf.connection, atom_systray_q, NULL)))
@@ -92,7 +92,7 @@ systray_register(void)
     p_delete(&atom_systray_r);
 
     xcb_set_selection_owner(globalconf.connection,
-                            globalconf.systray.window,
+                            globalconf.protocol_screen->systray.window,
                             atom_systray,
                             XCB_CURRENT_TIME);
 
@@ -107,7 +107,7 @@ systray_cleanup(void)
     xcb_intern_atom_reply_t *atom_systray_r;
     char *atom_name;
 
-    if(!(atom_name = xcb_atom_name_by_screen("_NET_SYSTEM_TRAY", globalconf.default_screen))
+    if(!(atom_name = xcb_atom_name_by_screen("_NET_SYSTEM_TRAY", globalconf.protocol_screen->screen_number))
        || !(atom_systray_r = xcb_intern_atom_reply(globalconf.connection,
                                                    xcb_intern_atom_unchecked(globalconf.connection,
                                                                              false,
@@ -130,7 +130,7 @@ systray_cleanup(void)
     p_delete(&atom_systray_r);
 
     xcb_unmap_window(globalconf.connection,
-                     globalconf.systray.window);
+                     globalconf.protocol_screen->systray.window);
 }
 
 /** Handle a systray request.
@@ -167,7 +167,7 @@ systray_request_handle(xcb_window_t embed_win, xembed_info_t *info)
      */
     xcb_change_save_set(globalconf.connection, XCB_SET_MODE_INSERT, embed_win);
     xcb_reparent_window(globalconf.connection, embed_win,
-                        globalconf.systray.window,
+                        globalconf.protocol_screen->systray.window,
                         0, 0);
 
     em.win = embed_win;
@@ -178,7 +178,7 @@ systray_request_handle(xcb_window_t embed_win, xembed_info_t *info)
         xembed_info_get_reply(globalconf.connection, em_cookie, &em.info);
 
     xembed_embedded_notify(globalconf.connection, em.win,
-                           globalconf.systray.window,
+                           globalconf.protocol_screen->systray.window,
                            MIN(XEMBED_VERSION, em.info.version));
 
     xembed_window_array_append(&globalconf.embedded, em);
@@ -206,7 +206,7 @@ systray_process_client_message(xcb_client_message_event_t *ev)
         if(!(geom_r = xcb_get_geometry_reply(globalconf.connection, geom_c, NULL)))
             return -1;
 
-        if(globalconf.screen->root == geom_r->root)
+        if(globalconf.protocol_screen->screen->root == geom_r->root)
             ret = systray_request_handle(ev->data.data32[2], NULL);
 
         p_delete(&geom_r);
@@ -280,7 +280,7 @@ systray_update(int base_size, bool horizontal)
     else
         config_vals[1] = base_size * globalconf.embedded.len;
     xcb_configure_window(globalconf.connection,
-                         globalconf.systray.window,
+                         globalconf.protocol_screen->systray.window,
                          XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
                          config_vals);
 
@@ -329,42 +329,42 @@ luaA_systray(lua_State *L)
         {
             uint32_t config_back[] = { bg_color.pixel };
             xcb_change_window_attributes(globalconf.connection,
-                                         globalconf.systray.window,
+                                         globalconf.protocol_screen->systray.window,
                                          XCB_CW_BACK_PIXEL, config_back);
         }
 
-        if(globalconf.systray.parent == NULL)
+        if(globalconf.protocol_screen->systray.parent == NULL)
             systray_register();
 
-        if(globalconf.systray.parent != w)
+        if(globalconf.protocol_screen->systray.parent != w)
             xcb_reparent_window(globalconf.connection,
-                                globalconf.systray.window,
+                                globalconf.protocol_screen->systray.window,
                                 w->window,
                                 x, y);
         else
         {
             uint32_t config_vals[2] = { x, y };
             xcb_configure_window(globalconf.connection,
-                                 globalconf.systray.window,
+                                 globalconf.protocol_screen->systray.window,
                                  XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y,
                                  config_vals);
         }
 
-        globalconf.systray.parent = w;
+        globalconf.protocol_screen->systray.parent = w;
 
         if(globalconf.embedded.len != 0)
         {
             systray_update(base_size, horiz);
             xcb_map_window(globalconf.connection,
-                           globalconf.systray.window);
+                           globalconf.protocol_screen->systray.window);
         }
         else
             xcb_unmap_window(globalconf.connection,
-                             globalconf.systray.window);
+                             globalconf.protocol_screen->systray.window);
     }
 
     lua_pushnumber(L, globalconf.embedded.len);
-    luaA_object_push(L, globalconf.systray.parent);
+    luaA_object_push(L, globalconf.protocol_screen->systray.parent);
     return 2;
 }
 

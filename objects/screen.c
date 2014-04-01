@@ -128,7 +128,7 @@ screen_scan_randr(void)
             /* A quick XRandR recall:
              * You have CRTC that manages a part of a SCREEN.
              * Each CRTC can draw stuff on one or more OUTPUT. */
-            xcb_randr_get_screen_resources_cookie_t screen_res_c = xcb_randr_get_screen_resources(globalconf.connection, globalconf.screen->root);
+            xcb_randr_get_screen_resources_cookie_t screen_res_c = xcb_randr_get_screen_resources(globalconf.connection, globalconf.protocol_screen->screen->root);
             xcb_randr_get_screen_resources_reply_t *screen_res_r = xcb_randr_get_screen_resources_reply(globalconf.connection, screen_res_c, NULL);
 
             /* Only use the data from XRandR if there is more than one screen
@@ -239,7 +239,7 @@ screen_scan_xinerama(void)
 static void screen_scan_x11(void)
 {
     /* One screen only / Zaphod mode */
-    xcb_screen_t *xcb_screen = globalconf.screen;
+    xcb_screen_t *xcb_screen = globalconf.protocol_screen->screen;
     screen_t *s = screen_new(globalconf.L);
     s->geometry.x = 0;
     s->geometry.y = 0;
@@ -350,7 +350,7 @@ screen_area_get(screen_t *screen, bool strut)
 area_t
 display_area_get(void)
 {
-    xcb_screen_t *s = globalconf.screen;
+    xcb_screen_t *s = globalconf.protocol_screen->screen;
     area_t area = { .x = 0,
                     .y = 0,
                     .width = s->width_in_pixels,

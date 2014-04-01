@@ -91,7 +91,7 @@ awesome_atexit(bool restart)
     xcb_aux_sync(globalconf.connection);
 
     /* Disconnect *after* closing lua */
-    xcb_cursor_context_free(globalconf.cursor_ctx);
+    xcb_cursor_context_free(globalconf.protocol_screen->cursor_ctx);
     xcb_disconnect(globalconf.connection);
 }
 
@@ -397,26 +397,34 @@ main(int argc, char **argv)
     /* We have no clue where the input focus is right now */
     globalconf.focus.need_update = true;
 
+    {
+    /* XXX FIXME Hack */
+    protocol_screen_t scr;
+    p_clear(&scr, 1);
+    protocol_screen_array_push(&globalconf.protocol_screens, scr);
+    globalconf.protocol_screen = &globalconf.protocol_screens.tab[0];
+    }
+
     /* X stuff */
-    globalconf.connection = xcb_connect(NULL, &globalconf.default_screen);
+    globalconf.connection = xcb_connect(NULL, &globalconf.protocol_screen->screen_number);
     if(xcb_connection_has_error(globalconf.connection))
         fatal("cannot open display (error %d)", xcb_connection_has_error(globalconf.connection));
 
-    globalconf.screen = xcb_aux_get_screen(globalconf.connection, globalconf.default_screen);
-    globalconf.default_visual = draw_default_visual(globalconf.screen);
+    globalconf.protocol_screen->screen = xcb_aux_get_screen(globalconf.connection, globalconf.protocol_screen->screen_number);
+    globalconf.protocol_screen->default_visual = draw_default_visual(globalconf.protocol_screen->screen);
     if(!no_argb)
-        globalconf.visual = draw_argb_visual(globalconf.screen);
-    if(!globalconf.visual)
-        globalconf.visual = globalconf.default_visual;
-    globalconf.default_depth = draw_visual_depth(globalconf.screen, globalconf.visual->visual_id);
-    globalconf.default_cmap = globalconf.screen->default_colormap;
-    if(globalconf.default_depth != globalconf.screen->root_depth)
+        globalconf.protocol_screen->visual = draw_argb_visual(globalconf.protocol_screen->screen);
+    if(!globalconf.protocol_screen->visual)
+        globalconf.protocol_screen->visual = globalconf.protocol_screen->default_visual;
+    globalconf.protocol_screen->default_depth = draw_visual_depth(globalconf.protocol_screen->screen, globalconf.protocol_screen->visual->visual_id);
+    globalconf.protocol_screen->default_cmap = globalconf.protocol_screen->screen->default_colormap;
+    if(globalconf.protocol_screen->default_depth != globalconf.protocol_screen->screen->root_depth)
     {
         // We need our own color map if we aren't using the default depth
-        globalconf.default_cmap = xcb_generate_id(globalconf.connection);
+        globalconf.protocol_screen->default_cmap = xcb_generate_id(globalconf.connection);
         xcb_create_colormap(globalconf.connection, XCB_COLORMAP_ALLOC_NONE,
-                globalconf.default_cmap, globalconf.screen->root,
-                globalconf.visual->visual_id);
+                globalconf.protocol_screen->default_cmap, globalconf.protocol_screen->screen->root,
+                globalconf.protocol_screen->visual->visual_id);
     }
 
     /* Prefetch all the extensions we might need */
@@ -426,7 +434,7 @@ main(int argc, char **argv)
     xcb_prefetch_extension_data(globalconf.connection, &xcb_xinerama_id);
     xcb_prefetch_extension_data(globalconf.connection, &xcb_shape_id);
 
-    if (xcb_cursor_context_new(globalconf.connection, globalconf.screen, &globalconf.cursor_ctx) < 0)
+    if (xcb_cursor_context_new(globalconf.connection, globalconf.protocol_screen->screen, &globalconf.protocol_screen->cursor_ctx) < 0)
         fatal("Failed to initialize xcb-cursor");
 
     /* initialize dbus */
@@ -447,7 +455,7 @@ main(int argc, char **argv)
 
         /* This causes an error if some other window manager is running */
         cookie = xcb_change_window_attributes_checked(globalconf.connection,
-                                                      globalconf.screen->root,
+                                                      globalconf.protocol_screen->screen->root,
                                                       XCB_CW_EVENT_MASK, &select_input_val);
         if (xcb_request_check(globalconf.connection, cookie))
             fatal("another window manager is already running");
@@ -491,28 +499,28 @@ main(int argc, char **argv)
     /* The default GC is just a newly created associated with a window with
      * depth globalconf.default_depth */
     xcb_window_t tmp_win = xcb_generate_id(globalconf.connection);
-    globalconf.gc = xcb_generate_id(globalconf.connection);
-    xcb_create_window(globalconf.connection, globalconf.default_depth,
-                      tmp_win, globalconf.screen->root,
+    globalconf.protocol_screen->gc = xcb_generate_id(globalconf.connection);
+    xcb_create_window(globalconf.connection, globalconf.protocol_screen->default_depth,
+                      tmp_win, globalconf.protocol_screen->screen->root,
                       -1, -1, 1, 1, 0,
-                      XCB_COPY_FROM_PARENT, globalconf.visual->visual_id,
+                      XCB_COPY_FROM_PARENT, globalconf.protocol_screen->visual->visual_id,
                       XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL | XCB_CW_COLORMAP,
                       (const uint32_t [])
                       {
-                          globalconf.screen->black_pixel,
-                          globalconf.screen->black_pixel,
-                          globalconf.default_cmap
+                          globalconf.protocol_screen->screen->black_pixel,
+                          globalconf.protocol_screen->screen->black_pixel,
+                          globalconf.protocol_screen->default_cmap
                       });
-    xcb_create_gc(globalconf.connection, globalconf.gc, tmp_win, XCB_GC_FOREGROUND | XCB_GC_BACKGROUND,
-                  (const uint32_t[]) { globalconf.screen->black_pixel, globalconf.screen->white_pixel });
+    xcb_create_gc(globalconf.connection, globalconf.protocol_screen->gc, tmp_win, XCB_GC_FOREGROUND | XCB_GC_BACKGROUND,
+                  (const uint32_t[]) { globalconf.protocol_screen->screen->black_pixel, globalconf.protocol_screen->screen->white_pixel });
     xcb_destroy_window(globalconf.connection, tmp_win);
 
     /* Get the window tree associated to this screen */
     tree_c = xcb_query_tree_unchecked(globalconf.connection,
-                                      globalconf.screen->root);
+                                      globalconf.protocol_screen->screen->root);
 
     xcb_change_window_attributes(globalconf.connection,
-                                 globalconf.screen->root,
+                                 globalconf.protocol_screen->screen->root,
                                  XCB_CW_EVENT_MASK,
                                  ROOT_WINDOW_EVENT_MASK);
 

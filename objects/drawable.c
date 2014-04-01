@@ -72,10 +72,10 @@ drawable_set_geometry(drawable_t *d, int didx, area_t geom)
     if (size_changed && geom.width > 0 && geom.height > 0)
     {
         d->pixmap = xcb_generate_id(globalconf.connection);
-        xcb_create_pixmap(globalconf.connection, globalconf.default_depth, d->pixmap,
-                          globalconf.screen->root, geom.width, geom.height);
+        xcb_create_pixmap(globalconf.connection, globalconf.protocol_screen->default_depth, d->pixmap,
+                          globalconf.protocol_screen->screen->root, geom.width, geom.height);
         d->surface = cairo_xcb_surface_create(globalconf.connection,
-                                              d->pixmap, globalconf.visual,
+                                              d->pixmap, globalconf.protocol_screen->visual,
                                               geom.width, geom.height);
         luaA_object_emit_signal(globalconf.L, didx, "property::surface", 0);
     }

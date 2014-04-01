@@ -72,7 +72,7 @@ mouse_query_pointer(xcb_window_t window, int16_t *x, int16_t *y, xcb_window_t *c
 static bool
 mouse_query_pointer_root(int16_t *x, int16_t *y, xcb_window_t *child, uint16_t *mask)
 {
-    xcb_window_t root = globalconf.screen->root;
+    xcb_window_t root = globalconf.protocol_screen->screen->root;
 
     return mouse_query_pointer(root, x, y, child, mask);
 }
@@ -138,7 +138,7 @@ luaA_mouse_newindex(lua_State *L)
         return luaA_default_newindex(L);
 
     screen = luaA_checkscreen(L, 3);
-    mouse_warp_pointer(globalconf.screen->root, screen->geometry.x, screen->geometry.y);
+    mouse_warp_pointer(globalconf.protocol_screen->screen->root, screen->geometry.x, screen->geometry.y);
     return 0;
 }
 
@@ -198,7 +198,7 @@ luaA_mouse_coords(lua_State *L)
         if(ignore_enter_notify)
             client_ignore_enterleave_events();
 
-        mouse_warp_pointer(globalconf.screen->root, x, y);
+        mouse_warp_pointer(globalconf.protocol_screen->screen->root, x, y);
 
         if(ignore_enter_notify)
             client_restore_enterleave_events();

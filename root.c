@@ -35,7 +35,7 @@ root_set_wallpaper_pixmap(xcb_connection_t *c, xcb_pixmap_t p)
 {
     xcb_get_property_cookie_t prop_c;
     xcb_get_property_reply_t *prop_r;
-    const xcb_screen_t *screen = globalconf.screen;
+    const xcb_screen_t *screen = globalconf.protocol_screen->screen;
 
     /* We now have the pattern painted to the pixmap p. Now turn p into the root
      * window's background pixmap.
@@ -72,7 +72,7 @@ root_set_wallpaper(cairo_pattern_t *pattern)
     /* globalconf.connection should be connected to the same X11 server, so we
      * can just use the info from that other connection.
      */
-    const xcb_screen_t *screen = globalconf.screen;
+    const xcb_screen_t *screen = globalconf.protocol_screen->screen;
     uint16_t width = screen->width_in_pixels;
     uint16_t height = screen->height_in_pixels;
     bool result = false;
@@ -232,7 +232,7 @@ luaA_root_keys(lua_State *L)
         while(lua_next(L, 1))
             key_array_append(&globalconf.keys, luaA_object_ref_class(L, -1, &key_class));
 
-        xcb_screen_t *s = globalconf.screen;
+        xcb_screen_t *s = globalconf.protocol_screen->screen;
         xcb_ungrab_key(globalconf.connection, XCB_GRAB_ANY, s->root, XCB_BUTTON_MASK_ANY);
         xwindow_grabkeys(s->root, &globalconf.keys);
 
@@ -301,10 +301,10 @@ luaA_root_cursor(lua_State *L)
 
     if(cursor_font)
     {
-        uint32_t change_win_vals[] = { xcursor_new(globalconf.cursor_ctx, cursor_font) };
+        uint32_t change_win_vals[] = { xcursor_new(globalconf.protocol_screen->cursor_ctx, cursor_font) };
 
         xcb_change_window_attributes(globalconf.connection,
-                                     globalconf.screen->root,
+                                     globalconf.protocol_screen->screen->root,
                                      XCB_CW_CURSOR,
                                      change_win_vals);
     }
@@ -359,7 +359,7 @@ luaA_root_wallpaper(lua_State *L)
     }
 
     prop_c = xcb_get_property_unchecked(globalconf.connection, false,
-            globalconf.screen->root, _XROOTPMAP_ID, XCB_ATOM_PIXMAP, 0, 1);
+            globalconf.protocol_screen->screen->root, _XROOTPMAP_ID, XCB_ATOM_PIXMAP, 0, 1);
     prop_r = xcb_get_property_reply(globalconf.connection, prop_c, NULL);
 
     if (!prop_r || !prop_r->value_len)
@@ -384,11 +384,11 @@ luaA_root_wallpaper(lua_State *L)
     }
 
     /* Only the default visual makes sense, so just the default depth */
-    if (geom_r->depth != draw_visual_depth(globalconf.screen, globalconf.default_visual->visual_id))
+    if (geom_r->depth != draw_visual_depth(globalconf.protocol_screen->screen, globalconf.protocol_screen->default_visual->visual_id))
         warn("Got a pixmap with depth %d, but the default depth is %d, continuing anyway",
-                geom_r->depth, draw_visual_depth(globalconf.screen, globalconf.default_visual->visual_id));
+                geom_r->depth, draw_visual_depth(globalconf.protocol_screen->screen, globalconf.protocol_screen->default_visual->visual_id));
 
-    surface = cairo_xcb_surface_create(globalconf.connection, *rootpix, globalconf.default_visual,
+    surface = cairo_xcb_surface_create(globalconf.connection, *rootpix, globalconf.protocol_screen->default_visual,
                                        geom_r->width, geom_r->height);
 
     /* lua has to make sure this surface gets destroyed */
@@ -407,10 +407,10 @@ luaA_root_wallpaper(lua_State *L)
 static int
 luaA_root_tags(lua_State *L)
 {
-    lua_createtable(L, globalconf.tags.len, 0);
-    for(int i = 0; i < globalconf.tags.len; i++)
+    lua_createtable(L, globalconf.protocol_screen->tags.len, 0);
+    for(int i = 0; i < globalconf.protocol_screen->tags.len; i++)
     {
-        luaA_object_push(L, globalconf.tags.tab[i]);
+        luaA_object_push(L, globalconf.protocol_screen->tags.tab[i]);
         lua_rawseti(L, -2, i + 1);
     }
 

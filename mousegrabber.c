@@ -34,7 +34,7 @@
 static bool
 mousegrabber_grab(xcb_cursor_t cursor)
 {
-    xcb_window_t root = globalconf.screen->root;
+    xcb_window_t root = globalconf.protocol_screen->screen->root;
 
     for(int i = 1000; i; i--)
     {
@@ -93,7 +93,7 @@ luaA_mousegrabber_run(lua_State *L)
 
     if(cfont)
     {
-        xcb_cursor_t cursor = xcursor_new(globalconf.cursor_ctx, cfont);
+        xcb_cursor_t cursor = xcursor_new(globalconf.protocol_screen->cursor_ctx, cfont);
 
         luaA_registerfct(L, 1, &globalconf.mousegrabber);
 

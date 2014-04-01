@@ -156,9 +156,9 @@ is_client_tagged(client_t *c, tag_t *t)
 int
 tags_get_first_selected_index(void)
 {
-    foreach(tag, globalconf.tags)
+    foreach(tag, globalconf.protocol_screen->tags)
         if((*tag)->selected)
-            return tag_array_indexof(&globalconf.tags, tag);
+            return tag_array_indexof(&globalconf.protocol_screen->tags, tag);
     return 0;
 }
 
@@ -282,14 +282,14 @@ luaA_tag_set_activated(lua_State *L, tag_t *tag)
     if(activated)
     {
         lua_pushvalue(L, -3);
-        tag_array_append(&globalconf.tags, luaA_object_ref_class(L, -1, &tag_class));
+        tag_array_append(&globalconf.protocol_screen->tags, luaA_object_ref_class(L, -1, &tag_class));
     }
     else
     {
-        for (int i = 0; i < globalconf.tags.len; i++)
-            if(globalconf.tags.tab[i] == tag)
+        for (int i = 0; i < globalconf.protocol_screen->tags.len; i++)
+            if(globalconf.protocol_screen->tags.tab[i] == tag)
             {
-                tag_array_take(&globalconf.tags, i);
+                tag_array_take(&globalconf.protocol_screen->tags, i);
                 break;
             }
 

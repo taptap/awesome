@@ -82,7 +82,7 @@ ewmh_update_net_active_window(lua_State *L)
         win = XCB_NONE;
 
     xcb_change_property(globalconf.connection, XCB_PROP_MODE_REPLACE,
-			globalconf.screen->root,
+			globalconf.protocol_screen->screen->root,
 			_NET_ACTIVE_WINDOW, XCB_ATOM_WINDOW, 32, 1, &win);
 
     return 0;
@@ -98,7 +98,7 @@ ewmh_update_net_client_list(lua_State *L)
         wins[n++] = (*client)->window;
 
     xcb_change_property(globalconf.connection, XCB_PROP_MODE_REPLACE,
-                        globalconf.screen->root,
+                        globalconf.protocol_screen->screen->root,
                         _NET_CLIENT_LIST, XCB_ATOM_WINDOW, 32, n, wins);
 
     return 0;
@@ -108,7 +108,7 @@ void
 ewmh_init(void)
 {
     xcb_window_t father;
-    xcb_screen_t *xscreen = globalconf.screen;
+    xcb_screen_t *xscreen = globalconf.protocol_screen->screen;
     xcb_atom_t atom[] =
     {
         _NET_SUPPORTED,
@@ -213,17 +213,17 @@ ewmh_update_net_client_list_stacking(void)
         wins[n++] = (*client)->window;
 
     xcb_change_property(globalconf.connection, XCB_PROP_MODE_REPLACE,
-			globalconf.screen->root,
+			globalconf.protocol_screen->screen->root,
 			_NET_CLIENT_LIST_STACKING, XCB_ATOM_WINDOW, 32, n, wins);
 }
 
 void
 ewmh_update_net_numbers_of_desktop(void)
 {
-    uint32_t count = globalconf.tags.len;
+    uint32_t count = globalconf.protocol_screen->tags.len;
 
     xcb_change_property(globalconf.connection, XCB_PROP_MODE_REPLACE,
-			globalconf.screen->root,
+			globalconf.protocol_screen->screen->root,
 			_NET_NUMBER_OF_DESKTOPS, XCB_ATOM_CARDINAL, 32, 1, &count);
 }
 
@@ -233,7 +233,7 @@ ewmh_update_net_current_desktop(void)
     uint32_t idx = tags_get_first_selected_index();
 
     xcb_change_property(globalconf.connection, XCB_PROP_MODE_REPLACE,
-                        globalconf.screen->root,
+                        globalconf.protocol_screen->screen->root,
                         _NET_CURRENT_DESKTOP, XCB_ATOM_CARDINAL, 32, 1, &idx);
 }
 
@@ -244,14 +244,14 @@ ewmh_update_net_desktop_names(void)
 
     buffer_inita(&buf, BUFSIZ);
 
-    foreach(tag, globalconf.tags)
+    foreach(tag, globalconf.protocol_screen->tags)
     {
         buffer_adds(&buf, tag_get_name(*tag));
         buffer_addc(&buf, '\0');
     }
 
     xcb_change_property(globalconf.connection, XCB_PROP_MODE_REPLACE,
-			globalconf.screen->root,
+			globalconf.protocol_screen->screen->root,
 			_NET_DESKTOP_NAMES, UTF8_STRING, 8, buf.len, buf.s);
     buffer_wipe(&buf);
 }
@@ -367,10 +367,10 @@ ewmh_process_desktop(client_t *c, uint32_t desktop)
         /* Pop the client, arguments are already popped */
         lua_pop(globalconf.L, 1);
     }
-    else if (idx >= 0 && idx < globalconf.tags.len)
+    else if (idx >= 0 && idx < globalconf.protocol_screen->tags.len)
     {
         luaA_object_push(globalconf.L, c);
-        luaA_object_push(globalconf.L, globalconf.tags.tab[idx]);
+        luaA_object_push(globalconf.L, globalconf.protocol_screen->tags.tab[idx]);
         luaA_object_emit_signal(globalconf.L, -2, "request::tag", 1);
         /* Pop the client, arguments are already popped */
         lua_pop(globalconf.L, 1);
@@ -385,9 +385,9 @@ ewmh_process_client_message(xcb_client_message_event_t *ev)
     if(ev->type == _NET_CURRENT_DESKTOP)
     {
         int idx = ev->data.data32[0];
-        if (idx >= 0 && idx < globalconf.tags.len)
+        if (idx >= 0 && idx < globalconf.protocol_screen->tags.len)
         {
-            luaA_object_push(globalconf.L, globalconf.tags.tab[idx]);
+            luaA_object_push(globalconf.L, globalconf.protocol_screen->tags.tab[idx]);
             luaA_object_emit_signal(globalconf.L, -1, "request::select", 0);
             lua_pop(globalconf.L, 1);
         }
@@ -436,8 +436,8 @@ ewmh_client_update_desktop(client_t *c)
 {
     int i;
 
-    for(i = 0; i < globalconf.tags.len; i++)
-        if(is_client_tagged(c, globalconf.tags.tab[i]))
+    for(i = 0; i < globalconf.protocol_screen->tags.len; i++)
+        if(is_client_tagged(c, globalconf.protocol_screen->tags.tab[i]))
         {
             xcb_change_property(globalconf.connection, XCB_PROP_MODE_REPLACE,
                                 c->window, _NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 32, 1, &i);

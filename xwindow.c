@@ -329,8 +329,8 @@ xwindow_shape_pixmap(int width, int height, cairo_surface_t *surf)
     cairo_surface_t *dest;
     cairo_t *cr;
 
-    xcb_create_pixmap(globalconf.connection, 1, pixmap, globalconf.screen->root, width, height);
-    dest = cairo_xcb_surface_create_for_bitmap(globalconf.connection, globalconf.screen, pixmap, width, height);
+    xcb_create_pixmap(globalconf.connection, 1, pixmap, globalconf.protocol_screen->screen->root, width, height);
+    dest = cairo_xcb_surface_create_for_bitmap(globalconf.connection, globalconf.protocol_screen->screen, pixmap, width, height);
 
     cr = cairo_create(dest);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);

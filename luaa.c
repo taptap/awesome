@@ -70,7 +70,7 @@ composite_manager_running(void)
     char *atom_name;
     bool result;
 
-    if(!(atom_name = xcb_atom_name_by_screen("_NET_WM_CM", globalconf.default_screen)))
+    if(!(atom_name = xcb_atom_name_by_screen("_NET_WM_CM", globalconf.protocol_screen->screen_number)))
     {
         warn("error getting composite manager atom");
         return false;

@@ -158,7 +158,7 @@ client_maybevisible(client_t *c)
     if(c->sticky)
         return true;
 
-    foreach(tag, globalconf.tags)
+    foreach(tag, globalconf.protocol_screen->tags)
         if(tag_get_selected(*tag) && is_client_tagged(c, *tag))
             return true;
 
@@ -345,7 +345,7 @@ void
 client_focus_refresh(void)
 {
     client_t *c = globalconf.focus.client;
-    xcb_window_t win = globalconf.screen->root;
+    xcb_window_t win = globalconf.protocol_screen->screen->root;
 
     if(!globalconf.focus.need_update)
         return;
@@ -362,7 +362,7 @@ client_focus_refresh(void)
             /* Focus the root window to make sure the previously focused client
              * doesn't get any input in case WM_TAKE_FOCUS gets ignored.
              */
-            win = globalconf.screen->root;
+            win = globalconf.protocol_screen->screen->root;
 
         if(client_hasproto(c, WM_TAKE_FOCUS))
             xwindow_takefocus(c->window);
@@ -446,27 +446,27 @@ client_manage(xcb_window_t w, xcb_get_geometry_reply_t *wgeom, xcb_get_window_at
         xcb_shape_select_input(globalconf.connection, w, 1);
 
     client_t *c = client_new(globalconf.L);
-    xcb_screen_t *s = globalconf.screen;
+    xcb_screen_t *s = globalconf.protocol_screen->screen;
 
     /* consider the window banned */
     c->isbanned = true;
     /* Store window and visual */
     c->window = w;
-    c->visualtype = draw_find_visual(globalconf.screen, wattr->visual);
+    c->visualtype = draw_find_visual(globalconf.protocol_screen->screen, wattr->visual);
     c->frame_window = xcb_generate_id(globalconf.connection);
-    xcb_create_window(globalconf.connection, globalconf.default_depth, c->frame_window, s->root,
+    xcb_create_window(globalconf.connection, globalconf.protocol_screen->default_depth, c->frame_window, s->root,
                       wgeom->x, wgeom->y, wgeom->width, wgeom->height,
-                      wgeom->border_width, XCB_COPY_FROM_PARENT, globalconf.visual->visual_id,
+                      wgeom->border_width, XCB_COPY_FROM_PARENT, globalconf.protocol_screen->visual->visual_id,
                       XCB_CW_BORDER_PIXEL | XCB_CW_BIT_GRAVITY | XCB_CW_WIN_GRAVITY
                       | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK | XCB_CW_COLORMAP,
                       (const uint32_t [])
                       {
-                          globalconf.screen->black_pixel,
+                          globalconf.protocol_screen->screen->black_pixel,
                           XCB_GRAVITY_NORTH_WEST,
                           XCB_GRAVITY_NORTH_WEST,
                           1,
                           FRAME_SELECT_INPUT_EVENT_MASK,
-                          globalconf.default_cmap
+                          globalconf.protocol_screen->default_cmap
                       });
 
     /* The client may already be mapped, thus we must be sure that we don't send
@@ -478,13 +478,13 @@ client_manage(xcb_window_t w, xcb_get_geometry_reply_t *wgeom, xcb_get_window_at
     xcb_grab_server(globalconf.connection);
 
     xcb_change_window_attributes(globalconf.connection,
-                                 globalconf.screen->root,
+                                 globalconf.protocol_screen->screen->root,
                                  XCB_CW_EVENT_MASK,
                                  no_event);
     xcb_reparent_window(globalconf.connection, w, c->frame_window, 0, 0);
     xcb_map_window(globalconf.connection, w);
     xcb_change_window_attributes(globalconf.connection,
-                                 globalconf.screen->root,
+                                 globalconf.protocol_screen->screen->root,
                                  XCB_CW_EVENT_MASK,
                                  ROOT_WINDOW_EVENT_MASK);
     xcb_ungrab_server(globalconf.connection);
@@ -1142,8 +1142,8 @@ client_unmanage(client_t *c, bool window_valid)
             break;
         }
     stack_client_remove(c);
-    for(int i = 0; i < globalconf.tags.len; i++)
-        untag_client(c, globalconf.tags.tab[i]);
+    for(int i = 0; i < globalconf.protocol_screen->tags.len; i++)
+        untag_client(c, globalconf.protocol_screen->tags.tab[i]);
 
     luaA_object_push(globalconf.L, c);
     luaA_object_emit_signal(globalconf.L, -1, "unmanage", 0);
@@ -1181,7 +1181,7 @@ client_unmanage(client_t *c, bool window_valid)
     if(window_valid)
     {
         xcb_unmap_window(globalconf.connection, c->window);
-        xcb_reparent_window(globalconf.connection, c->window, globalconf.screen->root,
+        xcb_reparent_window(globalconf.connection, c->window, globalconf.protocol_screen->screen->root,
                 c->geometry.x, c->geometry.y);
     }
 
@@ -1361,7 +1361,7 @@ luaA_client_tags(lua_State *L)
     if(lua_gettop(L) == 2)
     {
         luaA_checktable(L, 2);
-        for(int i = 0; i < globalconf.tags.len; i++)
+        for(int i = 0; i < globalconf.protocol_screen->tags.len; i++)
         {
             /* Only untag if we aren't going to add this tag again */
             bool found = false;
@@ -1371,7 +1371,7 @@ luaA_client_tags(lua_State *L)
                 tag_t *t = lua_touserdata(L, -1);
                 /* Pop the value from lua_next */
                 lua_pop(L, 1);
-                if (t != globalconf.tags.tab[i])
+                if (t != globalconf.protocol_screen->tags.tab[i])
                     continue;
 
                 /* Pop the key from lua_next */
@@ -1380,7 +1380,7 @@ luaA_client_tags(lua_State *L)
                 break;
             }
             if(!found)
-                untag_client(c, globalconf.tags.tab[i]);
+                untag_client(c, globalconf.protocol_screen->tags.tab[i]);
         }
         lua_pushnil(L);
         while(lua_next(L, 2))
@@ -1389,7 +1389,7 @@ luaA_client_tags(lua_State *L)
     }
 
     lua_newtable(L);
-    foreach(tag, globalconf.tags)
+    foreach(tag, globalconf.protocol_screen->tags)
         if(is_client_tagged(c, *tag))
         {
             luaA_object_push(L, *tag);
@@ -1529,7 +1529,7 @@ client_refresh_titlebar_partial(client_t *c, client_titlebar_t bar, int16_t x, i
     /* Redraw the affected parts */
     cairo_surface_flush(c->titlebar[bar].drawable->surface);
     xcb_copy_area(globalconf.connection, c->titlebar[bar].drawable->pixmap, c->frame_window,
-            globalconf.gc, x - area.x, y - area.y, x, y, width, height);
+            globalconf.protocol_screen->gc, x - area.x, y - area.y, x, y, width, height);
 }
 
 #define HANDLE_TITLEBAR_REFRESH(name, index)                                                \

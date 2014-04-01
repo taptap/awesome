@@ -392,7 +392,7 @@ property_handle_propertynotify_xproperty(xcb_property_notify_event_t *ev)
         /* Property is not registered */
         return;
 
-    if (ev->window != globalconf.screen->root)
+    if (ev->window != globalconf.protocol_screen->screen->root)
     {
         obj = client_getbywin(ev->window);
         if(!obj)
@@ -539,7 +539,7 @@ luaA_register_xproperty(lua_State *L)
 int
 luaA_set_xproperty(lua_State *L)
 {
-    return window_set_xproperty(L, globalconf.screen->root, 1, 2);
+    return window_set_xproperty(L, globalconf.protocol_screen->screen->root, 1, 2);
 }
 
 /** Get an xproperty.
@@ -549,7 +549,7 @@ luaA_set_xproperty(lua_State *L)
 int
 luaA_get_xproperty(lua_State *L)
 {
-    return window_get_xproperty(L, globalconf.screen->root, 1);
+    return window_get_xproperty(L, globalconf.protocol_screen->screen->root, 1);
 }
 
 // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80

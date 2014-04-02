@@ -253,6 +253,18 @@ drawin_set_protocol_screen(lua_State *L, int udx, protocol_screen_t *proto_scree
     drawin_t *drawin = luaA_checkudata(L, udx, &drawin_class);
     if(proto_screen != drawin->proto_screen)
     {
+        if(drawin->proto_screen)
+        {
+            /* Active BMA */
+            client_ignore_enterleave_events();
+            /* Unmap window */
+            drawin_unmap(drawin);
+            /* Active BMA */
+            client_restore_enterleave_events();
+            /* unref it */
+            luaA_object_unref(globalconf.L, drawin);
+        }
+
         drawin->proto_screen = proto_screen;
 
         luaA_object_push_item(globalconf.L, udx, drawin->drawable);
@@ -267,18 +279,8 @@ drawin_set_protocol_screen(lua_State *L, int udx, protocol_screen_t *proto_scree
             /* ref it */
             luaA_object_ref_class(globalconf.L, -1, &drawin_class);
         }
-        else
-        {
-            /* Active BMA */
-            client_ignore_enterleave_events();
-            /* Unmap window */
-            drawin_unmap(drawin);
-            /* Active BMA */
-            client_restore_enterleave_events();
-            /* unref it */
-            luaA_object_unref(globalconf.L, drawin);
-        }
 
+        luaA_object_emit_signal(L, udx, "property::protocol_screen", 0);
         luaA_object_emit_signal(L, udx, "property::visible", 0);
         if(strut_has_value(&drawin->strut))
         {
@@ -479,6 +481,33 @@ luaA_drawin_get_drawable(lua_State *L, drawin_t *drawin)
     return 1;
 }
 
+/** Set a drawin's visibility
+ * \param L The Lua VM state.
+ * \param drawin The drawin object.
+ * \return The number of elements pushed on stack.
+ */
+static int
+luaA_drawin_set_visible(lua_State *L, drawin_t *drawin)
+{
+    luaA_deprecate(L, "protocol_screen");
+    drawin_set_protocol_screen(L, -3,
+            luaA_checkboolean(L, -1) ? &globalconf.protocol_screens.tab[globalconf.default_screen] : NULL);
+    return 0;
+}
+
+/** Get a drawin's visibility
+ * \param L The Lua VM state.
+ * \param drawin The drawin object.
+ * \return The number of elements pushed on stack.
+ */
+static int
+luaA_drawin_get_visible(lua_State *L, drawin_t *drawin)
+{
+    luaA_deprecate(L, "protocol_screen");
+    lua_pushboolean(L, drawin->proto_screen != NULL);
+    return 1;
+}
+
 static int
 luaA_drawin_get_protocol_screen(lua_State *L, drawin_t *drawin)
 {
@@ -492,11 +521,17 @@ luaA_drawin_get_protocol_screen(lua_State *L, drawin_t *drawin)
 static int
 luaA_drawin_set_protocol_screen(lua_State *L, drawin_t *drawin)
 {
-    int number = luaL_checknumber(L, -1);
-    if (number < 1 || number >= globalconf.protocol_screens.len)
-        luaL_error(L, "Invalid protocol screen number");
+    protocol_screen_t *proto_screen = NULL;
 
-    drawin_set_protocol_screen(L, -3, &globalconf.protocol_screens.tab[number]);
+    if (!lua_isnil(L, -1))
+    {
+        int number = luaL_checknumber(L, -1);
+        if (number < 1 || number >= globalconf.protocol_screens.len)
+            luaL_error(L, "Invalid protocol screen number");
+        proto_screen = &globalconf.protocol_screens.tab[number];
+    }
+
+    drawin_set_protocol_screen(L, -3, proto_screen);
     return 0;
 }
 
@@ -596,6 +631,10 @@ drawin_class_setup(lua_State *L)
                             NULL,
                             (lua_class_propfunc_t) luaA_drawin_get_drawable,
                             NULL);
+    luaA_class_add_property(&drawin_class, "visible",
+                            (lua_class_propfunc_t) luaA_drawin_set_visible,
+                            (lua_class_propfunc_t) luaA_drawin_get_visible,
+                            (lua_class_propfunc_t) luaA_drawin_set_visible);
     luaA_class_add_property(&drawin_class, "ontop",
                             (lua_class_propfunc_t) luaA_drawin_set_ontop,
                             (lua_class_propfunc_t) luaA_drawin_get_ontop,
@@ -641,6 +680,7 @@ drawin_class_setup(lua_State *L)
     signal_add(&drawin_class.signals, "property::cursor");
     signal_add(&drawin_class.signals, "property::height");
     signal_add(&drawin_class.signals, "property::ontop");
+    signal_add(&drawin_class.signals, "property::visible");
     signal_add(&drawin_class.signals, "property::protocol_screen");
     signal_add(&drawin_class.signals, "property::shape_bounding");
     signal_add(&drawin_class.signals, "property::shape_clip");

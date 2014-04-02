@@ -80,12 +80,10 @@ drawable_wipe(drawable_t *d)
 void
 drawable_set_protocol_screen(drawable_t *d, int didx, protocol_screen_t *proto_screen)
 {
-    bool had_pixmap = d->pixmap != XCB_NONE;
-    if (d->proto_screen != proto_screen)
-        drawable_unset_surface(d);
+    if (d->proto_screen == proto_screen)
+        return;
     d->proto_screen = proto_screen;
-    if (had_pixmap)
-        drawable_set_surface(d, didx);
+    drawable_set_surface(d, didx);
 }
 
 void

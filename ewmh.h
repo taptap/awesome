@@ -28,8 +28,9 @@
 #include "strut.h"
 
 typedef struct client_t client_t;
+typedef struct protocol_screen_t protocol_screen_t;
 
-void ewmh_init(void);
+void ewmh_init(protocol_screen_t *);
 void ewmh_update_net_numbers_of_desktop(void);
 void ewmh_update_net_current_desktop(void);
 void ewmh_update_net_desktop_names(void);

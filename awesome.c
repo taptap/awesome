@@ -75,7 +75,8 @@ awesome_atexit(bool restart)
 
     a_dbus_cleanup();
 
-    systray_cleanup();
+    foreach(screen, globalconf.protocol_screens)
+        systray_cleanup(screen);
 
     /* Close Lua */
     lua_close(globalconf.L);
@@ -423,13 +424,14 @@ main(int argc, char **argv)
     /* Grab server */
     xcb_grab_server(globalconf.connection);
 
+    foreach(screen, globalconf.protocol_screens)
     {
         const uint32_t select_input_val = XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT;
         xcb_void_cookie_t cookie;
 
         /* This causes an error if some other window manager is running */
         cookie = xcb_change_window_attributes_checked(globalconf.connection,
-                                                      globalconf.protocol_screen->screen->root,
+                                                      screen->screen->root,
                                                       XCB_CW_EVENT_MASK, &select_input_val);
         if (xcb_request_check(globalconf.connection, cookie))
             fatal("another window manager is already running");
@@ -463,21 +465,22 @@ main(int argc, char **argv)
                         &globalconf.shiftlockmask, &globalconf.capslockmask,
                         &globalconf.modeswitchmask);
 
-    /* do this only for real screen */
-    ewmh_init();
-    systray_init();
+    /* Initialize the protocol screens */
+    foreach(screen, globalconf.protocol_screens)
+    {
+        ewmh_init(screen);
+        systray_init(screen);
+        spawn_init(screen);
 
-    /* init spawn (sn) */
-    spawn_init();
+        xcb_change_window_attributes(globalconf.connection,
+                                     screen->screen->root,
+                                     XCB_CW_EVENT_MASK,
+                                     ROOT_WINDOW_EVENT_MASK);
+    }
 
     /* Get the window tree associated to this screen */
     tree_c = xcb_query_tree_unchecked(globalconf.connection,
                                       globalconf.protocol_screen->screen->root);
-
-    xcb_change_window_attributes(globalconf.connection,
-                                 globalconf.protocol_screen->screen->root,
-                                 XCB_CW_EVENT_MASK,
-                                 ROOT_WINDOW_EVENT_MASK);
 
     /* we will receive events, stop grabbing server */
     xcb_ungrab_server(globalconf.connection);

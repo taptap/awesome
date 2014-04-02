@@ -37,7 +37,7 @@ typedef struct tag tag_t;
 ARRAY_TYPE(tag_t *, tag)
 
 /** Per-protocol-screen information */
-typedef struct
+struct protocol_screen_t
 {
     /** X11 screen number */
     int screen_number;
@@ -68,7 +68,8 @@ typedef struct
     xcb_colormap_t default_cmap;
     /** Tag list */
     tag_array_t tags;
-} protocol_screen_t;
+};
+typedef struct protocol_screen_t protocol_screen_t;
 
 DO_ARRAY(protocol_screen_t, protocol_screen, DO_NOTHING)
 

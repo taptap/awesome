@@ -105,10 +105,10 @@ ewmh_update_net_client_list(lua_State *L)
 }
 
 void
-ewmh_init(void)
+ewmh_init(protocol_screen_t *proto_screen)
 {
     xcb_window_t father;
-    xcb_screen_t *xscreen = globalconf.protocol_screen->screen;
+    xcb_screen_t *xscreen = proto_screen->screen;
     xcb_atom_t atom[] =
     {
         _NET_SUPPORTED,

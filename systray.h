@@ -22,12 +22,15 @@
 #ifndef AWESOME_SYSTRAY_H
 #define AWESOME_SYSTRAY_H
 
-#include <xcb/xcb.h>
-#include <lua.h>
 #include "common/xembed.h"
 
-void systray_init(void);
-void systray_cleanup(void);
+#include <xcb/xcb.h>
+#include <lua.h>
+
+typedef struct protocol_screen_t protocol_screen_t;
+
+void systray_init(protocol_screen_t *);
+void systray_cleanup(protocol_screen_t *);
 int systray_request_handle(xcb_window_t, xembed_info_t *);
 bool systray_iskdedockapp(xcb_window_t);
 int systray_process_client_message(xcb_client_message_event_t *);

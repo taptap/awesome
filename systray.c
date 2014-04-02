@@ -34,13 +34,13 @@
 /** Initialize systray information in X.
  */
 void
-systray_init(void)
+systray_init(protocol_screen_t *proto_screen)
 {
-    xcb_screen_t *xscreen = globalconf.protocol_screen->screen;
+    xcb_screen_t *xscreen = proto_screen->screen;
 
-    globalconf.protocol_screen->systray.window = xcb_generate_id(globalconf.connection);
+    proto_screen->systray.window = xcb_generate_id(globalconf.connection);
     xcb_create_window(globalconf.connection, xscreen->root_depth,
-                      globalconf.protocol_screen->systray.window,
+                      proto_screen->systray.window,
                       xscreen->root,
                       -1, -1, 1, 1, 0,
                       XCB_COPY_FROM_PARENT, xscreen->root_visual,
@@ -50,17 +50,17 @@ systray_init(void)
 /** Register systray in X.
  */
 static void
-systray_register(void)
+systray_register(protocol_screen_t *proto_screen)
 {
     xcb_client_message_event_t ev;
-    xcb_screen_t *xscreen = globalconf.protocol_screen->screen;
+    xcb_screen_t *xscreen = proto_screen->screen;
     char *atom_name;
     xcb_intern_atom_cookie_t atom_systray_q;
     xcb_intern_atom_reply_t *atom_systray_r;
     xcb_atom_t atom_systray;
 
     /* Send requests */
-    if(!(atom_name = xcb_atom_name_by_screen("_NET_SYSTEM_TRAY", globalconf.protocol_screen->screen_number)))
+    if(!(atom_name = xcb_atom_name_by_screen("_NET_SYSTEM_TRAY", proto_screen->screen_number)))
     {
         warn("error getting systray atom");
         return;
@@ -78,7 +78,7 @@ systray_register(void)
     ev.format = 32;
     ev.type = MANAGER;
     ev.data.data32[0] = XCB_CURRENT_TIME;
-    ev.data.data32[2] = globalconf.protocol_screen->systray.window;
+    ev.data.data32[2] = proto_screen->systray.window;
     ev.data.data32[3] = ev.data.data32[4] = 0;
 
     if(!(atom_systray_r = xcb_intern_atom_reply(globalconf.connection, atom_systray_q, NULL)))
@@ -92,7 +92,7 @@ systray_register(void)
     p_delete(&atom_systray_r);
 
     xcb_set_selection_owner(globalconf.connection,
-                            globalconf.protocol_screen->systray.window,
+                            proto_screen->systray.window,
                             atom_systray,
                             XCB_CURRENT_TIME);
 
@@ -102,12 +102,12 @@ systray_register(void)
 /** Remove systray information in X.
  */
 void
-systray_cleanup(void)
+systray_cleanup(protocol_screen_t *proto_screen)
 {
     xcb_intern_atom_reply_t *atom_systray_r;
     char *atom_name;
 
-    if(!(atom_name = xcb_atom_name_by_screen("_NET_SYSTEM_TRAY", globalconf.protocol_screen->screen_number))
+    if(!(atom_name = xcb_atom_name_by_screen("_NET_SYSTEM_TRAY", proto_screen->screen_number))
        || !(atom_systray_r = xcb_intern_atom_reply(globalconf.connection,
                                                    xcb_intern_atom_unchecked(globalconf.connection,
                                                                              false,
@@ -130,7 +130,7 @@ systray_cleanup(void)
     p_delete(&atom_systray_r);
 
     xcb_unmap_window(globalconf.connection,
-                     globalconf.protocol_screen->systray.window);
+                     proto_screen->systray.window);
 }
 
 /** Handle a systray request.
@@ -334,7 +334,7 @@ luaA_systray(lua_State *L)
         }
 
         if(globalconf.protocol_screen->systray.parent == NULL)
-            systray_register();
+            systray_register(globalconf.protocol_screen);
 
         if(globalconf.protocol_screen->systray.parent != w)
             xcb_reparent_window(globalconf.connection,

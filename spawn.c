@@ -226,14 +226,14 @@ spawn_start_notify(client_t *c, const char * startup_id)
 /** Initialize program spawner.
  */
 void
-spawn_init(void)
+spawn_init(protocol_screen_t *proto_screen)
 {
-    globalconf.protocol_screen->sndisplay = sn_xcb_display_new(globalconf.connection, NULL, NULL);
+    proto_screen->sndisplay = sn_xcb_display_new(globalconf.connection, NULL, NULL);
 
-    globalconf.protocol_screen->snmonitor = sn_monitor_context_new(globalconf.protocol_screen->sndisplay,
-                                                                   globalconf.protocol_screen->screen_number,
-                                                                   spawn_monitor_event,
-                                                                   NULL, NULL);
+    proto_screen->snmonitor = sn_monitor_context_new(proto_screen->sndisplay,
+                                                     proto_screen->screen_number,
+                                                     spawn_monitor_event,
+                                                     NULL, NULL);
 
     signal_add(&global_signals, "spawn::canceled");
     signal_add(&global_signals, "spawn::change");

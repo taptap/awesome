@@ -26,6 +26,7 @@
 #include "common/luaclass.h"
 #include "draw.h"
 
+typedef struct protocol_screen_t protocol_screen_t;
 typedef void drawable_refresh_callback(void *);
 
 /** drawable type */
@@ -38,6 +39,8 @@ struct drawable_t
     cairo_surface_t *surface;
     /** The geometry of the drawable (in root window coordinates). */
     area_t geometry;
+    /** The protocol screen that this drawable is displayed on. */
+    protocol_screen_t *proto_screen;
     /** Surface contents are undefined if this is false. */
     bool refreshed;
     /** Callback for refreshing. */
@@ -49,6 +52,7 @@ typedef struct drawable_t drawable_t;
 
 drawable_t *drawable_allocator(lua_State *, drawable_refresh_callback *, void *);
 void drawable_set_geometry(drawable_t *, int, area_t);
+void drawable_set_protocol_screen(drawable_t *, int, protocol_screen_t *);
 void drawable_class_setup(lua_State *);
 
 #endif

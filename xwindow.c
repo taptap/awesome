@@ -323,14 +323,14 @@ xwindow_get_shape(xcb_window_t win, enum xcb_shape_sk_t kind)
 
 /** Turn a cairo surface into a pixmap with depth 1 */
 static xcb_pixmap_t
-xwindow_shape_pixmap(int width, int height, cairo_surface_t *surf)
+xwindow_shape_pixmap(protocol_screen_t *proto_screen, int width, int height, cairo_surface_t *surf)
 {
     xcb_pixmap_t pixmap = xcb_generate_id(globalconf.connection);
     cairo_surface_t *dest;
     cairo_t *cr;
 
-    xcb_create_pixmap(globalconf.connection, 1, pixmap, globalconf.protocol_screen->screen->root, width, height);
-    dest = cairo_xcb_surface_create_for_bitmap(globalconf.connection, globalconf.protocol_screen->screen, pixmap, width, height);
+    xcb_create_pixmap(globalconf.connection, 1, pixmap, proto_screen->screen->root, width, height);
+    dest = cairo_xcb_surface_create_for_bitmap(globalconf.connection, proto_screen->screen, pixmap, width, height);
 
     cr = cairo_create(dest);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
@@ -347,14 +347,14 @@ xwindow_shape_pixmap(int width, int height, cairo_surface_t *surf)
 
 /** Set one of a window's shapes */
 void
-xwindow_set_shape(xcb_window_t win, int width, int height, enum xcb_shape_sk_t kind, cairo_surface_t *surf, int offset)
+xwindow_set_shape(protocol_screen_t *proto_screen, xcb_window_t win, int width, int height, enum xcb_shape_sk_t kind, cairo_surface_t *surf, int offset)
 {
     if (!globalconf.have_shape)
         return;
 
     xcb_pixmap_t pixmap = XCB_NONE;
     if (surf)
-        pixmap = xwindow_shape_pixmap(width, height, surf);
+        pixmap = xwindow_shape_pixmap(proto_screen, width, height, surf);
 
     xcb_shape_mask(globalconf.connection, XCB_SHAPE_SO_SET, kind, win, offset, offset, pixmap);
 

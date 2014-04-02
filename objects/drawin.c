@@ -280,6 +280,7 @@ drawin_allocator(lua_State *L)
     w->type = _NET_WM_WINDOW_TYPE_NORMAL;
 
     drawable_allocator(L, (drawable_refresh_callback *) drawin_refresh_pixmap, w);
+    drawable_set_protocol_screen(lua_touserdata(L, -1), -1, globalconf.protocol_screen);
     w->drawable = luaA_object_ref_item(L, -2, -1);
 
     w->window = xcb_generate_id(globalconf.connection);
@@ -524,7 +525,7 @@ luaA_drawin_set_shape_bounding(lua_State *L, drawin_t *drawin)
     cairo_surface_t *surf = NULL;
     if(!lua_isnil(L, -1))
         surf = (cairo_surface_t *)lua_touserdata(L, -1);
-    xwindow_set_shape(drawin->window,
+    xwindow_set_shape(globalconf.protocol_screen, drawin->window,
             drawin->geometry.width + 2*drawin->border_width,
             drawin->geometry.height + 2*drawin->border_width,
             XCB_SHAPE_SK_BOUNDING, surf, -drawin->border_width);
@@ -559,8 +560,8 @@ luaA_drawin_set_shape_clip(lua_State *L, drawin_t *drawin)
     cairo_surface_t *surf = NULL;
     if(!lua_isnil(L, -1))
         surf = (cairo_surface_t *)lua_touserdata(L, -1);
-    xwindow_set_shape(drawin->window, drawin->geometry.width, drawin->geometry.height,
-            XCB_SHAPE_SK_CLIP, surf, 0);
+    xwindow_set_shape(globalconf.protocol_screen, drawin->window, drawin->geometry.width,
+            drawin->geometry.height, XCB_SHAPE_SK_CLIP, surf, 0);
     luaA_object_emit_signal(L, -3, "property::shape_clip", 0);
     return 0;
 }

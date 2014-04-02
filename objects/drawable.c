@@ -38,6 +38,7 @@ drawable_allocator(lua_State *L, drawable_refresh_callback *callback, void *data
     d->refresh_data = data;
     d->refreshed = false;
     d->surface = NULL;
+    d->proto_screen = NULL;
     d->pixmap = XCB_NONE;
     return d;
 }
@@ -55,9 +56,36 @@ drawable_unset_surface(drawable_t *d)
 }
 
 static void
+drawable_set_surface(drawable_t *d, int didx)
+{
+    drawable_unset_surface(d);
+    if (d->geometry.width == 0 || d->geometry.height == 0 || !d->proto_screen)
+        return;
+
+    d->pixmap = xcb_generate_id(globalconf.connection);
+    xcb_create_pixmap(globalconf.connection, d->proto_screen->default_depth, d->pixmap,
+                      d->proto_screen->screen->root, d->geometry.width, d->geometry.height);
+    d->surface = cairo_xcb_surface_create(globalconf.connection,
+                                          d->pixmap, d->proto_screen->visual,
+                                          d->geometry.width, d->geometry.height);
+    luaA_object_emit_signal(globalconf.L, didx, "property::surface", 0);
+}
+
+static void
 drawable_wipe(drawable_t *d)
 {
     drawable_unset_surface(d);
+}
+
+void
+drawable_set_protocol_screen(drawable_t *d, int didx, protocol_screen_t *proto_screen)
+{
+    bool had_pixmap = d->pixmap != XCB_NONE;
+    if (d->proto_screen != proto_screen)
+        drawable_unset_surface(d);
+    d->proto_screen = proto_screen;
+    if (had_pixmap)
+        drawable_set_surface(d, didx);
 }
 
 void
@@ -66,20 +94,8 @@ drawable_set_geometry(drawable_t *d, int didx, area_t geom)
     area_t old = d->geometry;
     d->geometry = geom;
 
-    bool size_changed = (old.width != geom.width) || (old.height != geom.height);
-    if (size_changed)
-        drawable_unset_surface(d);
-    if (size_changed && geom.width > 0 && geom.height > 0)
-    {
-        d->pixmap = xcb_generate_id(globalconf.connection);
-        xcb_create_pixmap(globalconf.connection, globalconf.protocol_screen->default_depth, d->pixmap,
-                          globalconf.protocol_screen->screen->root, geom.width, geom.height);
-        d->surface = cairo_xcb_surface_create(globalconf.connection,
-                                              d->pixmap, globalconf.protocol_screen->visual,
-                                              geom.width, geom.height);
-        luaA_object_emit_signal(globalconf.L, didx, "property::surface", 0);
-    }
-
+    if ((old.width != geom.width) || (old.height != geom.height))
+        drawable_set_surface(d, didx);
     if (old.x != geom.x)
         luaA_object_emit_signal(globalconf.L, didx, "property::x", 0);
     if (old.y != geom.y)

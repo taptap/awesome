@@ -26,6 +26,7 @@
 #include "color.h"
 
 enum xcb_shape_sk_t;
+typedef struct protocol_screen_t protocol_screen_t;
 
 void xwindow_set_state(xcb_window_t, uint32_t);
 xcb_get_property_cookie_t xwindow_get_state_unchecked(xcb_window_t);
@@ -41,7 +42,7 @@ void xwindow_takefocus(xcb_window_t);
 void xwindow_set_cursor(xcb_window_t, xcb_cursor_t);
 void xwindow_set_border_color(xcb_window_t, color_t *);
 cairo_surface_t *xwindow_get_shape(xcb_window_t, enum xcb_shape_sk_t);
-void xwindow_set_shape(xcb_window_t, int, int, enum xcb_shape_sk_t, cairo_surface_t *, int);
+void xwindow_set_shape(protocol_screen_t *proto_screen, xcb_window_t, int, int, enum xcb_shape_sk_t, cairo_surface_t *, int);
 void xwindow_translate_for_gravity(xcb_gravity_t, int16_t, int16_t, int16_t, int16_t, int16_t *, int16_t *);
 
 #endif

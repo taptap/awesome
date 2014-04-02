@@ -74,7 +74,7 @@ color_parse(const char *colstr, ssize_t len,
  * \return request informations.
  */
 color_init_request_t
-color_init_unchecked(color_t *color, const char *colstr, ssize_t len)
+color_init_unchecked(color_t *color, protocol_screen_t *proto_screen, const char *colstr, ssize_t len)
 {
     color_init_request_t req;
     uint8_t red, green, blue;
@@ -98,7 +98,7 @@ color_init_unchecked(color_t *color, const char *colstr, ssize_t len)
     }
 
     req.cookie_hexa = xcb_alloc_color_unchecked(globalconf.connection,
-                                                globalconf.protocol_screen->default_cmap,
+                                                proto_screen->default_cmap,
                                                 RGB_8TO16(red),
                                                 RGB_8TO16(green),
                                                 RGB_8TO16(blue));

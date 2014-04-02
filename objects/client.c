@@ -1577,6 +1577,7 @@ titlebar_get_drawable(lua_State *L, client_t *c, int cl_idx, client_titlebar_t b
         default:
             fatal("Unknown titlebar kind %d\n", (int) bar);
         }
+        drawable_set_protocol_screen(lua_touserdata(L, -1), -1, globalconf.protocol_screen);
         c->titlebar[bar].drawable = luaA_object_ref_item(L, cl_idx, -1);
     }
 
@@ -2052,7 +2053,8 @@ luaA_client_set_shape_bounding(lua_State *L, client_t *c)
     cairo_surface_t *surf = NULL;
     if(!lua_isnil(L, -1))
         surf = (cairo_surface_t *)lua_touserdata(L, -1);
-    xwindow_set_shape(c->frame_window,
+    xwindow_set_shape(globalconf.protocol_screen,
+            c->frame_window,
             c->geometry.width + (c->border_width * 2),
             c->geometry.height + (c->border_width * 2),
             XCB_SHAPE_SK_BOUNDING, surf, -c->border_width);
@@ -2103,8 +2105,8 @@ luaA_client_set_shape_clip(lua_State *L, client_t *c)
     cairo_surface_t *surf = NULL;
     if(!lua_isnil(L, -1))
         surf = (cairo_surface_t *)lua_touserdata(L, -1);
-    xwindow_set_shape(c->frame_window, c->geometry.width, c->geometry.height,
-            XCB_SHAPE_SK_CLIP, surf, 0);
+    xwindow_set_shape(globalconf.protocol_screen, c->frame_window, c->geometry.width,
+            c->geometry.height, XCB_SHAPE_SK_CLIP, surf, 0);
     luaA_object_emit_signal(L, -3, "property::shape_clip", 0);
     return 0;
 }

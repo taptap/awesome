@@ -325,7 +325,7 @@ luaA_systray(lua_State *L)
         const char *bg = luaL_checklstring(L, 6, &bg_len);
         color_t bg_color;
 
-        if(color_init_reply(color_init_unchecked(&bg_color, bg, bg_len)))
+        if(color_init_reply(color_init_unchecked(&bg_color, globalconf.protocol_screen, bg, bg_len)))
         {
             uint32_t config_back[] = { bg_color.pixel };
             xcb_change_window_attributes(globalconf.connection,

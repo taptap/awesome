@@ -27,6 +27,8 @@
 #include <stdbool.h>
 #include <lua.h>
 
+typedef struct protocol_screen_t protocol_screen_t;
+
 typedef struct
 {
     uint32_t pixel;
@@ -44,7 +46,7 @@ typedef struct
     const char *colstr;
 } color_init_request_t;
 
-color_init_request_t color_init_unchecked(color_t *, const char *, ssize_t);
+color_init_request_t color_init_unchecked(color_t *, protocol_screen_t *, const char *, ssize_t);
 bool color_init_reply(color_init_request_t);
 
 int luaA_pushcolor(lua_State *, const color_t);

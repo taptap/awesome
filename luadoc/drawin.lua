@@ -8,7 +8,7 @@ module("drawin")
 -- @field border_color Border color.
 -- @field ontop On top of other windows.
 -- @field cursor The mouse cursor.
--- @field visible Visibility.
+-- @field protocol_screen Protocol screen that this drawin is displayed on.
 -- @field opacity The opacity of the drawin, between 0 and 1.
 -- @field type The window type (desktop, normal, dock, …).
 -- @field x The x coordinates.

@@ -333,7 +333,7 @@ screen_area_get(screen_t *screen, bool strut)
             COMPUTE_STRUT(*c)
 
     foreach(drawin, globalconf.drawins)
-        if((*drawin)->visible)
+        if((*drawin)->proto_screen)
         {
             screen_t *d_screen =
                 screen_getbycoord((*drawin)->geometry.x, (*drawin)->geometry.y);

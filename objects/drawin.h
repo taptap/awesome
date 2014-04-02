@@ -26,14 +26,16 @@
 #include "objects/window.h"
 #include "objects/drawable.h"
 
+typedef struct protocol_screen_t protocol_screen_t;
+
 /** Drawin type */
 struct drawin_t
 {
     WINDOW_OBJECT_HEADER
     /** Ontop */
     bool ontop;
-    /** Visible */
-    bool visible;
+    /** protocol screen */
+    protocol_screen_t *proto_screen;
     /** Cursor */
     char *cursor;
     /** The drawable for this drawin. */

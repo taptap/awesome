@@ -39,7 +39,7 @@ LUA_OBJECT_FUNCS(drawin_class, drawin_t, drawin)
 static void
 drawin_systray_kickout(drawin_t *w)
 {
-    if(globalconf.protocol_screen->systray.parent == w)
+    if(w->proto_screen->systray.parent == w)
     {
         /* Who! Check that we're not deleting a drawin with a systray, because it
          * may be its parent. If so, we reparent to root before, otherwise it will
@@ -60,13 +60,6 @@ drawin_wipe(drawin_t *w)
     /* The drawin must already be unmapped, else it
      * couldn't be garbage collected -> no unmap needed */
     p_delete(&w->cursor);
-    if(w->window)
-    {
-        /* Make sure we don't accidentally kill the systray window */
-        drawin_systray_kickout(w);
-        xcb_destroy_window(globalconf.connection, w->window);
-        w->window = XCB_NONE;
-    }
     /* No unref needed because we are being garbage collected */
     w->drawable = NULL;
 }
@@ -76,7 +69,7 @@ drawin_update_drawing(drawin_t *w, int widx)
 {
     /* If this drawin isn't visible, we don't need an up-to-date cairo surface
      * for it. (drawin_map() will later make sure we are called again) */
-    if(!w->visible)
+    if(!w->proto_screen)
         return;
 
     luaA_object_push_item(globalconf.L, widx, w->drawable);
@@ -182,6 +175,34 @@ drawin_refresh_pixmap_partial(drawin_t *drawin,
 static void
 drawin_map(drawin_t *drawin, int widx)
 {
+    xcb_screen_t *s = drawin->proto_screen->screen;
+
+    drawin->window = xcb_generate_id(globalconf.connection);
+    xcb_create_window(globalconf.connection, drawin->proto_screen->default_depth, drawin->window, s->root,
+                      drawin->geometry.x, drawin->geometry.y,
+                      drawin->geometry.width, drawin->geometry.height,
+                      drawin->border_width, XCB_COPY_FROM_PARENT, drawin->proto_screen->visual->visual_id,
+                      XCB_CW_BORDER_PIXEL | XCB_CW_BIT_GRAVITY
+                      | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK | XCB_CW_COLORMAP
+                      | XCB_CW_CURSOR,
+                      (const uint32_t [])
+                      {
+                          drawin->border_color.pixel,
+                          XCB_GRAVITY_NORTH_WEST,
+                          1,
+                          XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT
+                          | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY | XCB_EVENT_MASK_ENTER_WINDOW
+                          | XCB_EVENT_MASK_LEAVE_WINDOW | XCB_EVENT_MASK_STRUCTURE_NOTIFY
+                          | XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_EXPOSURE
+                          | XCB_EVENT_MASK_PROPERTY_CHANGE,
+                          drawin->proto_screen->default_cmap,
+                          xcursor_new(drawin->proto_screen->cursor_ctx, xcursor_font_fromstr(drawin->cursor))
+                      });
+
+    /* Set the right properties */
+    ewmh_update_window_type(drawin->window, window_translate_type(drawin->type));
+    ewmh_update_strut(drawin->window, &drawin->strut);
+
     /* Activate BMA */
     client_ignore_enterleave_events();
     /* Map the drawin */
@@ -201,6 +222,10 @@ static void
 drawin_unmap(drawin_t *drawin)
 {
     xcb_unmap_window(globalconf.connection, drawin->window);
+    /* Make sure we don't accidentally kill the systray window */
+    drawin_systray_kickout(drawin);
+    xcb_destroy_window(globalconf.connection, drawin->window);
+    drawin->window = XCB_NONE;
     foreach(item, globalconf.drawins)
         if(*item == drawin)
         {
@@ -222,20 +247,19 @@ drawin_getbywin(xcb_window_t win)
     return NULL;
 }
 
-/** Set a drawin visible or not.
- * \param L The Lua VM state.
- * \param udx The drawin.
- * \param v The visible value.
- */
 static void
-drawin_set_visible(lua_State *L, int udx, bool v)
+drawin_set_protocol_screen(lua_State *L, int udx, protocol_screen_t *proto_screen)
 {
     drawin_t *drawin = luaA_checkudata(L, udx, &drawin_class);
-    if(v != drawin->visible)
+    if(proto_screen != drawin->proto_screen)
     {
-        drawin->visible = v;
+        drawin->proto_screen = proto_screen;
 
-        if(drawin->visible)
+        luaA_object_push_item(globalconf.L, udx, drawin->drawable);
+        drawable_set_protocol_screen(drawin->drawable, -1, proto_screen);
+        lua_pop(globalconf.L, 1);
+
+        if(drawin->proto_screen)
         {
             drawin_map(drawin, udx);
             /* duplicate drawin */
@@ -268,10 +292,7 @@ drawin_set_visible(lua_State *L, int udx, bool v)
 static drawin_t *
 drawin_allocator(lua_State *L)
 {
-    xcb_screen_t *s = globalconf.protocol_screen->screen;
     drawin_t *w = drawin_new(L);
-
-    w->visible = false;
 
     w->opacity = -1;
     w->cursor = a_strdup("left_ptr");
@@ -280,34 +301,7 @@ drawin_allocator(lua_State *L)
     w->type = _NET_WM_WINDOW_TYPE_NORMAL;
 
     drawable_allocator(L, (drawable_refresh_callback *) drawin_refresh_pixmap, w);
-    drawable_set_protocol_screen(lua_touserdata(L, -1), -1, globalconf.protocol_screen);
     w->drawable = luaA_object_ref_item(L, -2, -1);
-
-    w->window = xcb_generate_id(globalconf.connection);
-    xcb_create_window(globalconf.connection, globalconf.protocol_screen->default_depth, w->window, s->root,
-                      w->geometry.x, w->geometry.y,
-                      w->geometry.width, w->geometry.height,
-                      w->border_width, XCB_COPY_FROM_PARENT, globalconf.protocol_screen->visual->visual_id,
-                      XCB_CW_BORDER_PIXEL | XCB_CW_BIT_GRAVITY
-                      | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK | XCB_CW_COLORMAP
-                      | XCB_CW_CURSOR,
-                      (const uint32_t [])
-                      {
-                          w->border_color.pixel,
-                          XCB_GRAVITY_NORTH_WEST,
-                          1,
-                          XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT
-                          | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY | XCB_EVENT_MASK_ENTER_WINDOW
-                          | XCB_EVENT_MASK_LEAVE_WINDOW | XCB_EVENT_MASK_STRUCTURE_NOTIFY
-                          | XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_EXPOSURE
-                          | XCB_EVENT_MASK_PROPERTY_CHANGE,
-                          globalconf.protocol_screen->default_cmap,
-                          xcursor_new(globalconf.protocol_screen->cursor_ctx, xcursor_font_fromstr(w->cursor))
-                      });
-
-    /* Set the right properties */
-    ewmh_update_window_type(w->window, window_translate_type(w->type));
-    ewmh_update_strut(w->window, &w->strut);
 
     return w;
 }
@@ -356,7 +350,6 @@ luaA_drawin_geometry(lua_State *L)
 
 LUA_OBJECT_EXPORT_PROPERTY(drawin, drawin_t, ontop, lua_pushboolean)
 LUA_OBJECT_EXPORT_PROPERTY(drawin, drawin_t, cursor, lua_pushstring)
-LUA_OBJECT_EXPORT_PROPERTY(drawin, drawin_t, visible, lua_pushboolean)
 
 static int
 luaA_drawin_set_x(lua_State *L, drawin_t *drawin)
@@ -474,18 +467,6 @@ luaA_drawin_set_cursor(lua_State *L, drawin_t *drawin)
     return 0;
 }
 
-/** Set the drawin visibility.
- * \param L The Lua VM state.
- * \param drawin The drawin object.
- * \return The number of elements pushed on stack.
- */
-static int
-luaA_drawin_set_visible(lua_State *L, drawin_t *drawin)
-{
-    drawin_set_visible(L, -3, luaA_checkboolean(L, -1));
-    return 0;
-}
-
 /** Get a drawin's drawable
  * \param L The Lua VM state.
  * \param drawin The drawin object.
@@ -496,6 +477,27 @@ luaA_drawin_get_drawable(lua_State *L, drawin_t *drawin)
 {
     luaA_object_push_item(L, -2, drawin->drawable);
     return 1;
+}
+
+static int
+luaA_drawin_get_protocol_screen(lua_State *L, drawin_t *drawin)
+{
+    if (drawin->proto_screen == NULL)
+        lua_pushnil(L);
+    else
+        lua_pushinteger(L, 1 + protocol_screen_array_indexof(&globalconf.protocol_screens, drawin->proto_screen));
+    return 1;
+}
+
+static int
+luaA_drawin_set_protocol_screen(lua_State *L, drawin_t *drawin)
+{
+    int number = luaL_checknumber(L, -1);
+    if (number < 1 || number >= globalconf.protocol_screens.len)
+        luaL_error(L, "Invalid protocol screen number");
+
+    drawin_set_protocol_screen(L, -3, &globalconf.protocol_screens.tab[number]);
+    return 0;
 }
 
 /** Get the drawin's bounding shape.
@@ -594,10 +596,6 @@ drawin_class_setup(lua_State *L)
                             NULL,
                             (lua_class_propfunc_t) luaA_drawin_get_drawable,
                             NULL);
-    luaA_class_add_property(&drawin_class, "visible",
-                            (lua_class_propfunc_t) luaA_drawin_set_visible,
-                            (lua_class_propfunc_t) luaA_drawin_get_visible,
-                            (lua_class_propfunc_t) luaA_drawin_set_visible);
     luaA_class_add_property(&drawin_class, "ontop",
                             (lua_class_propfunc_t) luaA_drawin_set_ontop,
                             (lua_class_propfunc_t) luaA_drawin_get_ontop,
@@ -634,14 +632,18 @@ drawin_class_setup(lua_State *L)
                             (lua_class_propfunc_t) luaA_drawin_set_shape_clip,
                             (lua_class_propfunc_t) luaA_drawin_get_shape_clip,
                             (lua_class_propfunc_t) luaA_drawin_set_shape_clip);
+    luaA_class_add_property(&drawin_class, "protocol_screen",
+                            (lua_class_propfunc_t) luaA_drawin_set_protocol_screen,
+                            (lua_class_propfunc_t) luaA_drawin_get_protocol_screen,
+                            (lua_class_propfunc_t) luaA_drawin_set_protocol_screen);
 
-    signal_add(&drawin_class.signals, "property::shape_bounding");
-    signal_add(&drawin_class.signals, "property::shape_clip");
     signal_add(&drawin_class.signals, "property::border_width");
     signal_add(&drawin_class.signals, "property::cursor");
     signal_add(&drawin_class.signals, "property::height");
     signal_add(&drawin_class.signals, "property::ontop");
-    signal_add(&drawin_class.signals, "property::visible");
+    signal_add(&drawin_class.signals, "property::protocol_screen");
+    signal_add(&drawin_class.signals, "property::shape_bounding");
+    signal_add(&drawin_class.signals, "property::shape_clip");
     signal_add(&drawin_class.signals, "property::width");
     signal_add(&drawin_class.signals, "property::x");
     signal_add(&drawin_class.signals, "property::y");

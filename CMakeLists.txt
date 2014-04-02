@@ -47,6 +47,7 @@ set(AWE_SRCS
     ${SOURCE_DIR}/mouse.c
     ${SOURCE_DIR}/mousegrabber.c
     ${SOURCE_DIR}/property.c
+    ${SOURCE_DIR}/protocol_screen.c
     ${SOURCE_DIR}/root.c
     ${SOURCE_DIR}/selection.c
     ${SOURCE_DIR}/spawn.c

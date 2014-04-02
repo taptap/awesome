@@ -91,7 +91,8 @@ awesome_atexit(bool restart)
     xcb_aux_sync(globalconf.connection);
 
     /* Disconnect *after* closing lua */
-    xcb_cursor_context_free(globalconf.protocol_screen->cursor_ctx);
+    foreach(screen, globalconf.protocol_screens)
+        xcb_cursor_context_free(screen->cursor_ctx);
     xcb_disconnect(globalconf.connection);
 }
 
@@ -397,35 +398,11 @@ main(int argc, char **argv)
     /* We have no clue where the input focus is right now */
     globalconf.focus.need_update = true;
 
-    {
-    /* XXX FIXME Hack */
-    protocol_screen_t scr;
-    p_clear(&scr, 1);
-    protocol_screen_array_push(&globalconf.protocol_screens, scr);
-    globalconf.protocol_screen = &globalconf.protocol_screens.tab[0];
-    }
-
     /* X stuff */
-    globalconf.connection = xcb_connect(NULL, &globalconf.protocol_screen->screen_number);
+    globalconf.connection = xcb_connect(NULL, &globalconf.default_screen);
     if(xcb_connection_has_error(globalconf.connection))
         fatal("cannot open display (error %d)", xcb_connection_has_error(globalconf.connection));
-
-    globalconf.protocol_screen->screen = xcb_aux_get_screen(globalconf.connection, globalconf.protocol_screen->screen_number);
-    globalconf.protocol_screen->default_visual = draw_default_visual(globalconf.protocol_screen->screen);
-    if(!no_argb)
-        globalconf.protocol_screen->visual = draw_argb_visual(globalconf.protocol_screen->screen);
-    if(!globalconf.protocol_screen->visual)
-        globalconf.protocol_screen->visual = globalconf.protocol_screen->default_visual;
-    globalconf.protocol_screen->default_depth = draw_visual_depth(globalconf.protocol_screen->screen, globalconf.protocol_screen->visual->visual_id);
-    globalconf.protocol_screen->default_cmap = globalconf.protocol_screen->screen->default_colormap;
-    if(globalconf.protocol_screen->default_depth != globalconf.protocol_screen->screen->root_depth)
-    {
-        // We need our own color map if we aren't using the default depth
-        globalconf.protocol_screen->default_cmap = xcb_generate_id(globalconf.connection);
-        xcb_create_colormap(globalconf.connection, XCB_COLORMAP_ALLOC_NONE,
-                globalconf.protocol_screen->default_cmap, globalconf.protocol_screen->screen->root,
-                globalconf.protocol_screen->visual->visual_id);
-    }
+    protocol_screens_init(no_argb);
 
     /* Prefetch all the extensions we might need */
     xcb_prefetch_extension_data(globalconf.connection, &xcb_big_requests_id);
@@ -433,9 +410,6 @@ main(int argc, char **argv)
     xcb_prefetch_extension_data(globalconf.connection, &xcb_randr_id);
     xcb_prefetch_extension_data(globalconf.connection, &xcb_xinerama_id);
     xcb_prefetch_extension_data(globalconf.connection, &xcb_shape_id);
-
-    if (xcb_cursor_context_new(globalconf.connection, globalconf.protocol_screen->screen, &globalconf.protocol_screen->cursor_ctx) < 0)
-        fatal("Failed to initialize xcb-cursor");
 
     /* initialize dbus */
     a_dbus_init();
@@ -495,25 +469,6 @@ main(int argc, char **argv)
 
     /* init spawn (sn) */
     spawn_init();
-
-    /* The default GC is just a newly created associated with a window with
-     * depth globalconf.default_depth */
-    xcb_window_t tmp_win = xcb_generate_id(globalconf.connection);
-    globalconf.protocol_screen->gc = xcb_generate_id(globalconf.connection);
-    xcb_create_window(globalconf.connection, globalconf.protocol_screen->default_depth,
-                      tmp_win, globalconf.protocol_screen->screen->root,
-                      -1, -1, 1, 1, 0,
-                      XCB_COPY_FROM_PARENT, globalconf.protocol_screen->visual->visual_id,
-                      XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL | XCB_CW_COLORMAP,
-                      (const uint32_t [])
-                      {
-                          globalconf.protocol_screen->screen->black_pixel,
-                          globalconf.protocol_screen->screen->black_pixel,
-                          globalconf.protocol_screen->default_cmap
-                      });
-    xcb_create_gc(globalconf.connection, globalconf.protocol_screen->gc, tmp_win, XCB_GC_FOREGROUND | XCB_GC_BACKGROUND,
-                  (const uint32_t[]) { globalconf.protocol_screen->screen->black_pixel, globalconf.protocol_screen->screen->white_pixel });
-    xcb_destroy_window(globalconf.connection, tmp_win);
 
     /* Get the window tree associated to this screen */
     tree_c = xcb_query_tree_unchecked(globalconf.connection,

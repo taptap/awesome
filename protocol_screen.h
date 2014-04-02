@@ -22,6 +22,8 @@
 #ifndef AWESOME_PROTOCOL_SCREEN_H
 #define AWESOME_PROTOCOL_SCREEN_H
 
+#include <common/array.h>
+
 #define SN_API_NOT_YET_FROZEN
 #include <libsn/sn.h>
 
@@ -69,6 +71,8 @@ typedef struct
 } protocol_screen_t;
 
 DO_ARRAY(protocol_screen_t, protocol_screen, DO_NOTHING)
+
+void protocol_screens_init(bool);
 
 #endif
 // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80

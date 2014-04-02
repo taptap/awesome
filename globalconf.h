@@ -107,6 +107,8 @@ typedef struct
     } focus;
     /** Drawins */
     drawin_array_t drawins;
+    /** The startup notification display struct */
+    SnDisplay *sndisplay;
     /** Latest timestamp we got from the X server */
     xcb_timestamp_t timestamp;
     /** Do we have to reban clients? */

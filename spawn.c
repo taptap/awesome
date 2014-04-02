@@ -228,9 +228,10 @@ spawn_start_notify(client_t *c, const char * startup_id)
 void
 spawn_init(protocol_screen_t *proto_screen)
 {
-    proto_screen->sndisplay = sn_xcb_display_new(globalconf.connection, NULL, NULL);
+    if (!globalconf.sndisplay)
+        globalconf.sndisplay = sn_xcb_display_new(globalconf.connection, NULL, NULL);
 
-    proto_screen->snmonitor = sn_monitor_context_new(proto_screen->sndisplay,
+    proto_screen->snmonitor = sn_monitor_context_new(globalconf.sndisplay,
                                                      proto_screen->screen_number,
                                                      spawn_monitor_event,
                                                      NULL, NULL);
@@ -336,7 +337,7 @@ luaA_spawn(lua_State *L)
     SnLauncherContext *context = NULL;
     if(use_sn)
     {
-        context = sn_launcher_context_new(globalconf.protocol_screen->sndisplay, globalconf.protocol_screen->screen_number);
+        context = sn_launcher_context_new(globalconf.sndisplay, globalconf.protocol_screen->screen_number);
         sn_launcher_context_set_name(context, "awesome");
         sn_launcher_context_set_description(context, "awesome spawn");
         sn_launcher_context_set_binary_name(context, argv[0]);

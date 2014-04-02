@@ -50,8 +50,6 @@ struct protocol_screen_t
         /** Systray window parent */
         drawin_t *parent;
     } systray;
-    /** The startup notification display struct */
-    SnDisplay *sndisplay;
     /** The monitor of startup notifications */
     SnMonitorContext *snmonitor;
     /** The visual, used to draw */

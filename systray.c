@@ -139,7 +139,7 @@ systray_cleanup(protocol_screen_t *proto_screen)
  * \return 0 on no error.
  */
 int
-systray_request_handle(xcb_window_t embed_win, xembed_info_t *info)
+systray_request_handle(protocol_screen_t *proto_screen, xcb_window_t embed_win, xembed_info_t *info)
 {
     xembed_window_t em;
     xcb_get_property_cookie_t em_cookie;
@@ -167,7 +167,7 @@ systray_request_handle(xcb_window_t embed_win, xembed_info_t *info)
      */
     xcb_change_save_set(globalconf.connection, XCB_SET_MODE_INSERT, embed_win);
     xcb_reparent_window(globalconf.connection, embed_win,
-                        globalconf.protocol_screen->systray.window,
+                        proto_screen->systray.window,
                         0, 0);
 
     em.win = embed_win;
@@ -178,7 +178,7 @@ systray_request_handle(xcb_window_t embed_win, xembed_info_t *info)
         xembed_info_get_reply(globalconf.connection, em_cookie, &em.info);
 
     xembed_embedded_notify(globalconf.connection, em.win,
-                           globalconf.protocol_screen->systray.window,
+                           proto_screen->systray.window,
                            MIN(XEMBED_VERSION, em.info.version));
 
     xembed_window_array_append(&globalconf.embedded, em);
@@ -195,6 +195,7 @@ int
 systray_process_client_message(xcb_client_message_event_t *ev)
 {
     int ret = 0;
+    protocol_screen_t *proto_screen;
     xcb_get_geometry_cookie_t geom_c;
     xcb_get_geometry_reply_t *geom_r;
 
@@ -206,8 +207,9 @@ systray_process_client_message(xcb_client_message_event_t *ev)
         if(!(geom_r = xcb_get_geometry_reply(globalconf.connection, geom_c, NULL)))
             return -1;
 
-        if(globalconf.protocol_screen->screen->root == geom_r->root)
-            ret = systray_request_handle(ev->data.data32[2], NULL);
+        proto_screen = protocol_screen_getbyroot(geom_r->root);
+        if(proto_screen)
+            ret = systray_request_handle(proto_screen, ev->data.data32[2], NULL);
 
         p_delete(&geom_r);
         break;
@@ -268,7 +270,7 @@ luaA_systray_invalidate(void)
 }
 
 static void
-systray_update(int base_size, bool horizontal)
+systray_update(protocol_screen_t *proto_screen, int base_size, bool horizontal)
 {
     if(base_size <= 0)
         return;
@@ -280,7 +282,7 @@ systray_update(int base_size, bool horizontal)
     else
         config_vals[1] = base_size * globalconf.embedded.len;
     xcb_configure_window(globalconf.connection,
-                         globalconf.protocol_screen->systray.window,
+                         proto_screen->systray.window,
                          XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
                          config_vals);
 
@@ -305,6 +307,7 @@ systray_update(int base_size, bool horizontal)
  * \param L The Lua VM state.
  * \return The number of elements pushed on stack.
  * \luastack
+ * \lparam The protocol screen that is meant.
  * \lparam The drawin to display the systray in.
  * \lparam x X position for the systray.
  * \lparam y Y position for the systray.
@@ -314,57 +317,67 @@ systray_update(int base_size, bool horizontal)
 int
 luaA_systray(lua_State *L)
 {
-    if(lua_gettop(L) != 0)
+    int number = luaL_checknumber(L, 1);
+    protocol_screen_t *proto_screen;
+
+    if (number < 1 || number >= globalconf.protocol_screens.len)
+        luaL_error(L, "Invalid protocol screen number");
+    proto_screen = &globalconf.protocol_screens.tab[number];
+
+    if(lua_gettop(L) != 1)
     {
         size_t bg_len;
-        drawin_t *w = luaA_checkudata(L, 1, &drawin_class);
-        int x = luaL_checknumber(L, 2);
-        int y = luaL_checknumber(L, 3);
-        int base_size = luaL_checknumber(L, 4);
-        bool horiz = lua_toboolean(L, 5);
-        const char *bg = luaL_checklstring(L, 6, &bg_len);
+        drawin_t *w = luaA_checkudata(L, 2, &drawin_class);
+        int x = luaL_checknumber(L, 3);
+        int y = luaL_checknumber(L, 4);
+        int base_size = luaL_checknumber(L, 5);
+        bool horiz = lua_toboolean(L, 6);
+        const char *bg = luaL_checklstring(L, 7, &bg_len);
         color_t bg_color;
 
-        if(color_init_reply(color_init_unchecked(&bg_color, globalconf.protocol_screen, bg, bg_len)))
+        if(w->proto_screen != proto_screen)
+            luaL_error(L, "Cannot put systray into drawin on different screen");
+
+        if(color_init_reply(color_init_unchecked(&bg_color, proto_screen, bg, bg_len)))
         {
             uint32_t config_back[] = { bg_color.pixel };
             xcb_change_window_attributes(globalconf.connection,
-                                         globalconf.protocol_screen->systray.window,
+                                         proto_screen->systray.window,
                                          XCB_CW_BACK_PIXEL, config_back);
         }
 
-        if(globalconf.protocol_screen->systray.parent == NULL)
-            systray_register(globalconf.protocol_screen);
+        if(proto_screen->systray.parent == NULL)
+            systray_register(proto_screen);
 
-        if(globalconf.protocol_screen->systray.parent != w)
+        if(proto_screen->systray.parent != w)
             xcb_reparent_window(globalconf.connection,
-                                globalconf.protocol_screen->systray.window,
+                                proto_screen->systray.window,
                                 w->window,
                                 x, y);
         else
         {
             uint32_t config_vals[2] = { x, y };
             xcb_configure_window(globalconf.connection,
-                                 globalconf.protocol_screen->systray.window,
+                                 proto_screen->systray.window,
                                  XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y,
                                  config_vals);
         }
 
-        globalconf.protocol_screen->systray.parent = w;
+        proto_screen->systray.parent = w;
 
         if(globalconf.embedded.len != 0)
         {
-            systray_update(base_size, horiz);
+            systray_update(proto_screen, base_size, horiz);
             xcb_map_window(globalconf.connection,
-                           globalconf.protocol_screen->systray.window);
+                           proto_screen->systray.window);
         }
         else
             xcb_unmap_window(globalconf.connection,
-                             globalconf.protocol_screen->systray.window);
+                             proto_screen->systray.window);
     }
 
     lua_pushnumber(L, globalconf.embedded.len);
-    luaA_object_push(L, globalconf.protocol_screen->systray.parent);
+    luaA_object_push(L, proto_screen->systray.parent);
     return 2;
 }
 

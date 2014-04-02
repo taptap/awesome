@@ -31,7 +31,7 @@ typedef struct protocol_screen_t protocol_screen_t;
 
 void systray_init(protocol_screen_t *);
 void systray_cleanup(protocol_screen_t *);
-int systray_request_handle(xcb_window_t, xembed_info_t *);
+int systray_request_handle(protocol_screen_t *, xcb_window_t, xembed_info_t *);
 bool systray_iskdedockapp(xcb_window_t);
 int systray_process_client_message(xcb_client_message_event_t *);
 int xembed_process_client_message(xcb_client_message_event_t *);

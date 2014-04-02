@@ -430,7 +430,7 @@ client_manage(xcb_window_t w, xcb_get_geometry_reply_t *wgeom, xcb_get_window_at
 
     if(systray_iskdedockapp(w))
     {
-        systray_request_handle(w, NULL);
+        systray_request_handle(globalconf.protocol_screen, w, NULL);
         return;
     }
 

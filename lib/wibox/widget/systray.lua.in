@@ -15,12 +15,13 @@ local abs = math.abs
 --- wibox.widget.systray
 local systray = { mt = {} }
 
+-- TODO / FIXME: Protocol screen support in all calls to awesome.systray()
 local horizontal = true
 local base_size = nil
 
 function systray:draw(wibox, cr, width, height)
     local x, y, _, _ = lbase.rect_to_device_geometry(cr, 0, 0, width, height)
-    local num_entries = capi.awesome.systray()
+    local num_entries = capi.awesome.systray(1) -- FIXME
     local bg = beautiful.bg_systray or beautiful.bg_normal or "#000000"
 
     -- Figure out if the cairo context is rotated
@@ -39,11 +40,11 @@ function systray:draw(wibox, cr, width, height)
     else
         base = in_dir / num_entries
     end
-    capi.awesome.systray(wibox.drawin, x, y, base, is_rotated, bg)
+    capi.awesome.systray(1, wibox.drawin, x, y, base, is_rotated, bg) -- FIXME
 end
 
 function systray:fit(width, height)
-    local num_entries = capi.awesome.systray()
+    local num_entries = capi.awesome.systray(1) -- FIXME
     local base = base_size
     if base == nil then
         if width < height then

@@ -817,7 +817,7 @@ client_resize(client_t *c, area_t geometry, bool honor_hints)
     area_t area;
 
     /* offscreen appearance fixes */
-    area = display_area_get();
+    area = display_area_get(globalconf.protocol_screen);
 
     if(geometry.x > area.width)
         geometry.x = area.width - geometry.width;

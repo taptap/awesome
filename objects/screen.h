@@ -27,6 +27,8 @@
 #include "common/array.h"
 #include "common/luaclass.h"
 
+typedef struct protocol_screen_t protocol_screen_t;
+
 typedef struct screen_output_t screen_output_t;
 ARRAY_TYPE(screen_output_t, screen_output)
 
@@ -37,6 +39,8 @@ struct a_screen
     area_t geometry;
     /** The screen outputs informations */
     screen_output_array_t outputs;
+    /** The protocol screen that screen belongs to. */
+    protocol_screen_t *proto_screen;
 };
 ARRAY_FUNCS(screen_t *, screen, DO_NOTHING)
 
@@ -44,7 +48,7 @@ void screen_class_setup(lua_State *L);
 void screen_scan(void);
 screen_t *screen_getbycoord(int, int);
 int screen_get_index(screen_t *);
-area_t display_area_get(void);
+area_t display_area_get(protocol_screen_t *);
 void screen_client_moveto(client_t *, screen_t *, bool);
 
 screen_t *luaA_checkscreen(lua_State *, int);

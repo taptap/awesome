@@ -107,14 +107,10 @@ screen_add(lua_State *L, int sidx)
 }
 
 static bool
-screens_exist(void)
+screen_scan_randr(protocol_screen_t *proto_screen)
 {
-    return globalconf.screens.len > 0;
-}
+    bool result = false;
 
-static bool
-screen_scan_randr(void)
-{
     /* Check for extension before checking for XRandR */
     if(xcb_get_extension_data(globalconf.connection, &xcb_randr_id)->present)
     {
@@ -128,7 +124,7 @@ screen_scan_randr(void)
             /* A quick XRandR recall:
              * You have CRTC that manages a part of a SCREEN.
              * Each CRTC can draw stuff on one or more OUTPUT. */
-            xcb_randr_get_screen_resources_cookie_t screen_res_c = xcb_randr_get_screen_resources(globalconf.connection, globalconf.protocol_screen->screen->root);
+            xcb_randr_get_screen_resources_cookie_t screen_res_c = xcb_randr_get_screen_resources(globalconf.connection, proto_screen->screen->root);
             xcb_randr_get_screen_resources_reply_t *screen_res_r = xcb_randr_get_screen_resources_reply(globalconf.connection, screen_res_c, NULL);
 
             /* Only use the data from XRandR if there is more than one screen
@@ -158,6 +154,7 @@ screen_scan_randr(void)
                 new_screen->geometry.y = crtc_info_r->y;
                 new_screen->geometry.width= crtc_info_r->width;
                 new_screen->geometry.height= crtc_info_r->height;
+                new_screen->proto_screen = proto_screen;
 
                 xcb_randr_output_t *randr_outputs = xcb_randr_get_crtc_info_outputs(crtc_info_r);
 
@@ -179,24 +176,27 @@ screen_scan_randr(void)
                     p_delete(&output_info_r);
                 }
 
+                result = true;
                 screen_add(globalconf.L, -1);
 
                 p_delete(&crtc_info_r);
             }
 
             p_delete(&screen_res_r);
-
-            return screens_exist();
         }
     }
 
-    return false;
+    return result;
 }
 
 static bool
-screen_scan_xinerama(void)
+screen_scan_xinerama(protocol_screen_t *proto_screen)
 {
     bool xinerama_is_active = false;
+
+    /* Xinerama doesn't mix with Zaphod mode, reject everything but the first screen */
+    if (proto_screen != &globalconf.protocol_screens.tab[0])
+        return false;
 
     /* Check for extension before checking for Xinerama */
     if(xcb_get_extension_data(globalconf.connection, &xcb_xinerama_id)->present)
@@ -225,26 +225,29 @@ screen_scan_xinerama(void)
         {
             screen_t *s = screen_new(globalconf.L);
             s->geometry = screen_xsitoarea(xsi[screen]);
+            s->proto_screen = proto_screen;
+            assert(globalconf.protocol_screens.len == 1);
             screen_add(globalconf.L, -1);
         }
 
         p_delete(&xsq);
 
-        return screens_exist();
+        return true;
     }
 
     return false;
 }
 
-static void screen_scan_x11(void)
+static void screen_scan_x11(protocol_screen_t *proto_screen)
 {
     /* One screen only / Zaphod mode */
-    xcb_screen_t *xcb_screen = globalconf.protocol_screen->screen;
+    xcb_screen_t *xcb_screen = proto_screen->screen;
     screen_t *s = screen_new(globalconf.L);
     s->geometry.x = 0;
     s->geometry.y = 0;
     s->geometry.width = xcb_screen->width_in_pixels;
     s->geometry.height = xcb_screen->height_in_pixels;
+    s->proto_screen = proto_screen;
     screen_add(globalconf.L, -1);
 }
 
@@ -253,8 +256,11 @@ static void screen_scan_x11(void)
 void
 screen_scan(void)
 {
-    if(!screen_scan_randr() && !screen_scan_xinerama())
-        screen_scan_x11();
+    foreach(screen, globalconf.protocol_screens)
+    {
+        if(!screen_scan_randr(screen) && !screen_scan_xinerama(screen))
+            screen_scan_x11(screen);
+    }
 }
 
 /** Return the Xinerama screen number where the coordinates belongs to.
@@ -348,9 +354,9 @@ screen_area_get(screen_t *screen, bool strut)
  * \return The display area.
  */
 area_t
-display_area_get(void)
+display_area_get(protocol_screen_t *proto_screen)
 {
-    xcb_screen_t *s = globalconf.protocol_screen->screen;
+    xcb_screen_t *s = proto_screen->screen;
     area_t area = { .x = 0,
                     .y = 0,
                     .width = s->width_in_pixels,

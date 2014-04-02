@@ -90,7 +90,8 @@ screen_add(lua_State *L, int sidx)
 
     foreach(screen_to_test, globalconf.screens)
         if(new_screen->geometry.x == (*screen_to_test)->geometry.x
-           && new_screen->geometry.y == (*screen_to_test)->geometry.y)
+           && new_screen->geometry.y == (*screen_to_test)->geometry.y
+           && new_screen->proto_screen == (*screen_to_test)->proto_screen)
             {
                 /* we already have a screen for this area, just check if
                  * it's not bigger and drop it */
@@ -462,6 +463,13 @@ luaA_screen_module_index(lua_State *L)
 LUA_OBJECT_EXPORT_PROPERTY(screen, screen_t, geometry, luaA_pusharea)
 
 static int
+luaA_screen_get_protocol_screen(lua_State *L, screen_t *s)
+{
+    lua_pushinteger(L, 1 + protocol_screen_array_indexof(&globalconf.protocol_screens, s->proto_screen));
+    return 1;
+}
+
+static int
 luaA_screen_get_index(lua_State *L, screen_t *s)
 {
     lua_pushinteger(L, screen_get_index(s));
@@ -544,6 +552,10 @@ screen_class_setup(lua_State *L)
     luaA_class_add_property(&screen_class, "outputs",
                             NULL,
                             (lua_class_propfunc_t) luaA_screen_get_outputs,
+                            NULL);
+    luaA_class_add_property(&screen_class, "protocol_screen",
+                            NULL,
+                            (lua_class_propfunc_t) luaA_screen_get_protocol_screen,
                             NULL);
     luaA_class_add_property(&screen_class, "workarea",
                             NULL,

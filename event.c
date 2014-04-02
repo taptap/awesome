@@ -732,7 +732,7 @@ event_handle_clientmessage(xcb_client_message_event_t *ev)
     else if(ev->type == _NET_SYSTEM_TRAY_OPCODE)
         systray_process_client_message(ev);
     else
-        ewmh_process_client_message(ev);
+        ewmh_process_client_message(globalconf.protocol_screen, ev);
 }
 
 /** The keymap change notify event handler.

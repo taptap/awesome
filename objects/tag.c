@@ -72,7 +72,7 @@ tag_view(lua_State *L, int udx, bool view)
     {
         tag->selected = view;
         banning_need_update();
-        ewmh_update_net_current_desktop();
+        ewmh_update_net_current_desktop(globalconf.protocol_screen);
 
         luaA_object_emit_signal(L, udx, "property::selected", 0);
     }
@@ -250,7 +250,7 @@ luaA_tag_set_name(lua_State *L, tag_t *tag)
     p_delete(&tag->name);
     a_iso2utf8(buf, len, &tag->name, NULL);
     luaA_object_emit_signal(L, -3, "property::name", 0);
-    ewmh_update_net_desktop_names();
+    ewmh_update_net_desktop_names(globalconf.protocol_screen);
     return 0;
 }
 
@@ -301,8 +301,8 @@ luaA_tag_set_activated(lua_State *L, tag_t *tag)
         }
         luaA_object_unref(L, tag);
     }
-    ewmh_update_net_numbers_of_desktop();
-    ewmh_update_net_desktop_names();
+    ewmh_update_net_numbers_of_desktop(globalconf.protocol_screen);
+    ewmh_update_net_desktop_names(globalconf.protocol_screen);
 
     luaA_object_emit_signal(L, -3, "property::activated", 0);
 

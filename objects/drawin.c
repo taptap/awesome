@@ -529,9 +529,9 @@ luaA_drawin_set_protocol_screen(lua_State *L, drawin_t *drawin)
     if (!lua_isnil(L, -1))
     {
         int number = luaL_checknumber(L, -1);
-        if (number < 1 || number >= globalconf.protocol_screens.len)
+        if (number < 1 || number > globalconf.protocol_screens.len)
             luaL_error(L, "Invalid protocol screen number");
-        proto_screen = &globalconf.protocol_screens.tab[number];
+        proto_screen = &globalconf.protocol_screens.tab[number - 1];
     }
 
     drawin_set_protocol_screen(L, -3, proto_screen);

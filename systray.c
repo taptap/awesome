@@ -320,9 +320,9 @@ luaA_systray(lua_State *L)
     int number = luaL_checknumber(L, 1);
     protocol_screen_t *proto_screen;
 
-    if (number < 1 || number >= globalconf.protocol_screens.len)
+    if (number < 1 || number > globalconf.protocol_screens.len)
         luaL_error(L, "Invalid protocol screen number");
-    proto_screen = &globalconf.protocol_screens.tab[number];
+    proto_screen = &globalconf.protocol_screens.tab[number - 1];
 
     if(lua_gettop(L) != 1)
     {

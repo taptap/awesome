@@ -46,11 +46,11 @@ drawin_systray_kickout(drawin_t *w)
          * hurt very much. */
         systray_cleanup(globalconf.protocol_screen);
         xcb_reparent_window(globalconf.connection,
-                            globalconf.protocol_screen->systray.window,
-                            globalconf.protocol_screen->screen->root,
+                            w->proto_screen->systray.window,
+                            w->proto_screen->screen->root,
                             -512, -512);
 
-        globalconf.protocol_screen->systray.parent = NULL;
+        w->proto_screen->systray.parent = NULL;
     }
 }
 
@@ -168,7 +168,7 @@ drawin_refresh_pixmap_partial(drawin_t *drawin,
     /* Make cairo do all pending drawing */
     cairo_surface_flush(drawin->drawable->surface);
     xcb_copy_area(globalconf.connection, drawin->drawable->pixmap,
-                  drawin->window, globalconf.protocol_screen->gc, x, y, x, y,
+                  drawin->window, drawin->proto_screen->gc, x, y, x, y,
                   w, h);
 }
 
@@ -459,10 +459,13 @@ luaA_drawin_set_cursor(lua_State *L, drawin_t *drawin)
         uint16_t cursor_font = xcursor_font_fromstr(buf);
         if(cursor_font)
         {
-            xcb_cursor_t cursor = xcursor_new(globalconf.protocol_screen->cursor_ctx, cursor_font);
             p_delete(&drawin->cursor);
             drawin->cursor = a_strdup(buf);
-            xwindow_set_cursor(drawin->window, cursor);
+            if(drawin->proto_screen)
+            {
+                xcb_cursor_t cursor = xcursor_new(drawin->proto_screen->cursor_ctx, cursor_font);
+                xwindow_set_cursor(drawin->window, cursor);
+            }
             luaA_object_emit_signal(L, -3, "property::cursor", 0);
         }
     }

@@ -345,7 +345,7 @@ void
 client_focus_refresh(void)
 {
     client_t *c = globalconf.focus.client;
-    xcb_window_t win = c->proto_screen->screen->root;
+    xcb_window_t win = globalconf.protocol_screens.tab[globalconf.default_screen].screen->root;
 
     if(!globalconf.focus.need_update)
         return;

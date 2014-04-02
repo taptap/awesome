@@ -51,6 +51,8 @@ typedef enum {
 struct client_t
 {
     WINDOW_OBJECT_HEADER
+    /** Client protocol screen */
+    protocol_screen_t *proto_screen;
     /** Client logical screen */
     screen_t *screen;
     /** Client name */

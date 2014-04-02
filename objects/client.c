@@ -158,7 +158,7 @@ client_maybevisible(client_t *c)
     if(c->sticky)
         return true;
 
-    foreach(tag, globalconf.protocol_screen->tags)
+    foreach(tag, c->proto_screen->tags)
         if(tag_get_selected(*tag) && is_client_tagged(c, *tag))
             return true;
 
@@ -345,7 +345,7 @@ void
 client_focus_refresh(void)
 {
     client_t *c = globalconf.focus.client;
-    xcb_window_t win = globalconf.protocol_screen->screen->root;
+    xcb_window_t win = c->proto_screen->screen->root;
 
     if(!globalconf.focus.need_update)
         return;
@@ -362,7 +362,7 @@ client_focus_refresh(void)
             /* Focus the root window to make sure the previously focused client
              * doesn't get any input in case WM_TAKE_FOCUS gets ignored.
              */
-            win = globalconf.protocol_screen->screen->root;
+            win = c->proto_screen->screen->root;
 
         if(client_hasproto(c, WM_TAKE_FOCUS))
             xwindow_takefocus(c->window);
@@ -427,10 +427,12 @@ void
 client_manage(xcb_window_t w, xcb_get_geometry_reply_t *wgeom, xcb_get_window_attributes_reply_t *wattr)
 {
     const uint32_t select_input_val[] = { CLIENT_SELECT_INPUT_EVENT_MASK };
+    protocol_screen_t *proto_screen = protocol_screen_getbyroot(wgeom->root);
+    assert(proto_screen != NULL);
 
     if(systray_iskdedockapp(w))
     {
-        systray_request_handle(globalconf.protocol_screen, w, NULL);
+        systray_request_handle(proto_screen, w, NULL);
         return;
     }
 
@@ -446,27 +448,28 @@ client_manage(xcb_window_t w, xcb_get_geometry_reply_t *wgeom, xcb_get_window_at
         xcb_shape_select_input(globalconf.connection, w, 1);
 
     client_t *c = client_new(globalconf.L);
-    xcb_screen_t *s = globalconf.protocol_screen->screen;
+    xcb_screen_t *s = proto_screen->screen;
 
     /* consider the window banned */
     c->isbanned = true;
-    /* Store window and visual */
+    /* Store protocol screen, window and visual */
+    c->proto_screen = proto_screen;
     c->window = w;
-    c->visualtype = draw_find_visual(globalconf.protocol_screen->screen, wattr->visual);
+    c->visualtype = draw_find_visual(proto_screen->screen, wattr->visual);
     c->frame_window = xcb_generate_id(globalconf.connection);
-    xcb_create_window(globalconf.connection, globalconf.protocol_screen->default_depth, c->frame_window, s->root,
+    xcb_create_window(globalconf.connection, proto_screen->default_depth, c->frame_window, s->root,
                       wgeom->x, wgeom->y, wgeom->width, wgeom->height,
-                      wgeom->border_width, XCB_COPY_FROM_PARENT, globalconf.protocol_screen->visual->visual_id,
+                      wgeom->border_width, XCB_COPY_FROM_PARENT, proto_screen->visual->visual_id,
                       XCB_CW_BORDER_PIXEL | XCB_CW_BIT_GRAVITY | XCB_CW_WIN_GRAVITY
                       | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK | XCB_CW_COLORMAP,
                       (const uint32_t [])
                       {
-                          globalconf.protocol_screen->screen->black_pixel,
+                          proto_screen->screen->black_pixel,
                           XCB_GRAVITY_NORTH_WEST,
                           XCB_GRAVITY_NORTH_WEST,
                           1,
                           FRAME_SELECT_INPUT_EVENT_MASK,
-                          globalconf.protocol_screen->default_cmap
+                          proto_screen->default_cmap
                       });
 
     /* The client may already be mapped, thus we must be sure that we don't send
@@ -478,13 +481,13 @@ client_manage(xcb_window_t w, xcb_get_geometry_reply_t *wgeom, xcb_get_window_at
     xcb_grab_server(globalconf.connection);
 
     xcb_change_window_attributes(globalconf.connection,
-                                 globalconf.protocol_screen->screen->root,
+                                 proto_screen->screen->root,
                                  XCB_CW_EVENT_MASK,
                                  no_event);
     xcb_reparent_window(globalconf.connection, w, c->frame_window, 0, 0);
     xcb_map_window(globalconf.connection, w);
     xcb_change_window_attributes(globalconf.connection,
-                                 globalconf.protocol_screen->screen->root,
+                                 proto_screen->screen->root,
                                  XCB_CW_EVENT_MASK,
                                  ROOT_WINDOW_EVENT_MASK);
     xcb_ungrab_server(globalconf.connection);
@@ -817,7 +820,7 @@ client_resize(client_t *c, area_t geometry, bool honor_hints)
     area_t area;
 
     /* offscreen appearance fixes */
-    area = display_area_get(globalconf.protocol_screen);
+    area = display_area_get(c->proto_screen);
 
     if(geometry.x > area.width)
         geometry.x = area.width - geometry.width;
@@ -1142,8 +1145,8 @@ client_unmanage(client_t *c, bool window_valid)
             break;
         }
     stack_client_remove(c);
-    for(int i = 0; i < globalconf.protocol_screen->tags.len; i++)
-        untag_client(c, globalconf.protocol_screen->tags.tab[i]);
+    for(int i = 0; i < c->proto_screen->tags.len; i++)
+        untag_client(c, c->proto_screen->tags.tab[i]);
 
     luaA_object_push(globalconf.L, c);
     luaA_object_emit_signal(globalconf.L, -1, "unmanage", 0);
@@ -1181,7 +1184,7 @@ client_unmanage(client_t *c, bool window_valid)
     if(window_valid)
     {
         xcb_unmap_window(globalconf.connection, c->window);
-        xcb_reparent_window(globalconf.connection, c->window, globalconf.protocol_screen->screen->root,
+        xcb_reparent_window(globalconf.connection, c->window, c->proto_screen->screen->root,
                 c->geometry.x, c->geometry.y);
     }
 
@@ -1361,7 +1364,7 @@ luaA_client_tags(lua_State *L)
     if(lua_gettop(L) == 2)
     {
         luaA_checktable(L, 2);
-        for(int i = 0; i < globalconf.protocol_screen->tags.len; i++)
+        for(int i = 0; i < c->proto_screen->tags.len; i++)
         {
             /* Only untag if we aren't going to add this tag again */
             bool found = false;
@@ -1371,7 +1374,7 @@ luaA_client_tags(lua_State *L)
                 tag_t *t = lua_touserdata(L, -1);
                 /* Pop the value from lua_next */
                 lua_pop(L, 1);
-                if (t != globalconf.protocol_screen->tags.tab[i])
+                if (t != c->proto_screen->tags.tab[i])
                     continue;
 
                 /* Pop the key from lua_next */
@@ -1380,7 +1383,7 @@ luaA_client_tags(lua_State *L)
                 break;
             }
             if(!found)
-                untag_client(c, globalconf.protocol_screen->tags.tab[i]);
+                untag_client(c, c->proto_screen->tags.tab[i]);
         }
         lua_pushnil(L);
         while(lua_next(L, 2))
@@ -1389,7 +1392,7 @@ luaA_client_tags(lua_State *L)
     }
 
     lua_newtable(L);
-    foreach(tag, globalconf.protocol_screen->tags)
+    foreach(tag, c->proto_screen->tags)
         if(is_client_tagged(c, *tag))
         {
             luaA_object_push(L, *tag);
@@ -1529,7 +1532,7 @@ client_refresh_titlebar_partial(client_t *c, client_titlebar_t bar, int16_t x, i
     /* Redraw the affected parts */
     cairo_surface_flush(c->titlebar[bar].drawable->surface);
     xcb_copy_area(globalconf.connection, c->titlebar[bar].drawable->pixmap, c->frame_window,
-            globalconf.protocol_screen->gc, x - area.x, y - area.y, x, y, width, height);
+            c->proto_screen->gc, x - area.x, y - area.y, x, y, width, height);
 }
 
 #define HANDLE_TITLEBAR_REFRESH(name, index)                                                \
@@ -1577,7 +1580,7 @@ titlebar_get_drawable(lua_State *L, client_t *c, int cl_idx, client_titlebar_t b
         default:
             fatal("Unknown titlebar kind %d\n", (int) bar);
         }
-        drawable_set_protocol_screen(lua_touserdata(L, -1), -1, globalconf.protocol_screen);
+        drawable_set_protocol_screen(lua_touserdata(L, -1), -1, c->proto_screen);
         c->titlebar[bar].drawable = luaA_object_ref_item(L, cl_idx, -1);
     }
 
@@ -1853,6 +1856,13 @@ luaA_client_get_content(lua_State *L, client_t *c)
 }
 
 static int
+luaA_client_get_protocol_screen(lua_State *L, client_t *c)
+{
+    lua_pushinteger(L, 1 + protocol_screen_array_indexof(&globalconf.protocol_screens, c->proto_screen));
+    return 1;
+}
+
+static int
 luaA_client_get_screen(lua_State *L, client_t *c)
 {
     if(!c->screen)
@@ -2053,7 +2063,7 @@ luaA_client_set_shape_bounding(lua_State *L, client_t *c)
     cairo_surface_t *surf = NULL;
     if(!lua_isnil(L, -1))
         surf = (cairo_surface_t *)lua_touserdata(L, -1);
-    xwindow_set_shape(globalconf.protocol_screen,
+    xwindow_set_shape(c->proto_screen,
             c->frame_window,
             c->geometry.width + (c->border_width * 2),
             c->geometry.height + (c->border_width * 2),
@@ -2105,7 +2115,7 @@ luaA_client_set_shape_clip(lua_State *L, client_t *c)
     cairo_surface_t *surf = NULL;
     if(!lua_isnil(L, -1))
         surf = (cairo_surface_t *)lua_touserdata(L, -1);
-    xwindow_set_shape(globalconf.protocol_screen, c->frame_window, c->geometry.width,
+    xwindow_set_shape(c->proto_screen, c->frame_window, c->geometry.width,
             c->geometry.height, XCB_SHAPE_SK_CLIP, surf, 0);
     luaA_object_emit_signal(L, -3, "property::shape_clip", 0);
     return 0;
@@ -2265,6 +2275,10 @@ client_class_setup(lua_State *L)
                             NULL,
                             (lua_class_propfunc_t) luaA_client_get_screen,
                             (lua_class_propfunc_t) luaA_client_set_screen);
+    luaA_class_add_property(&client_class, "protocol_screen",
+                            NULL,
+                            (lua_class_propfunc_t) luaA_client_get_protocol_screen,
+                            NULL);
     luaA_class_add_property(&client_class, "hidden",
                             (lua_class_propfunc_t) luaA_client_set_hidden,
                             (lua_class_propfunc_t) luaA_client_get_hidden,

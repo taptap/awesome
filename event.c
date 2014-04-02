@@ -222,7 +222,7 @@ event_handle_button(xcb_button_press_event_t *ev)
                          XCB_CURRENT_TIME);
     }
     else if(ev->child == XCB_NONE)
-        if(globalconf.protocol_screen->screen->root == ev->event)
+        if(protocol_screen_getbyroot(ev->event))
         {
             event_button_callback(ev, &globalconf.buttons, 0, 0, NULL);
             return;
@@ -346,11 +346,11 @@ event_handle_configurerequest(xcb_configure_request_event_t *ev)
 static void
 event_handle_configurenotify(xcb_configure_notify_event_t *ev)
 {
-    const xcb_screen_t *screen = globalconf.protocol_screen->screen;
+    protocol_screen_t *proto_screen = protocol_screen_getbyroot(ev->window);
 
-    if(ev->window == screen->root
-       && (ev->width != screen->width_in_pixels
-           || ev->height != screen->height_in_pixels))
+    if (proto_screen
+       && (ev->width != proto_screen->screen->width_in_pixels
+           || ev->height != proto_screen->screen->height_in_pixels))
         /* it's not that we panic, but restart */
         awesome_restart();
 }
@@ -732,7 +732,7 @@ event_handle_clientmessage(xcb_client_message_event_t *ev)
     else if(ev->type == _NET_SYSTEM_TRAY_OPCODE)
         systray_process_client_message(ev);
     else
-        ewmh_process_client_message(globalconf.protocol_screen, ev);
+        ewmh_process_client_message(ev);
 }
 
 /** The keymap change notify event handler.
@@ -757,10 +757,12 @@ event_handle_mappingnotify(xcb_mapping_notify_event_t *ev)
                             &globalconf.modeswitchmask);
 
         /* regrab everything */
-        xcb_screen_t *s = globalconf.protocol_screen->screen;
         /* yes XCB_BUTTON_MASK_ANY is also for grab_key even if it's look weird */
-        xcb_ungrab_key(globalconf.connection, XCB_GRAB_ANY, s->root, XCB_BUTTON_MASK_ANY);
-        xwindow_grabkeys(s->root, &globalconf.keys);
+        foreach(screen, globalconf.protocol_screens)
+        {
+            xcb_ungrab_key(globalconf.connection, XCB_GRAB_ANY, screen->screen->root, XCB_BUTTON_MASK_ANY);
+            xwindow_grabkeys(screen->screen->root, &globalconf.keys);
+        }
 
         foreach(_c, globalconf.clients)
         {
@@ -780,7 +782,7 @@ event_handle_reparentnotify(xcb_reparent_notify_event_t *ev)
     {
         /* Ignore reparents to the root window, they *might* be caused by
          * ourselves if a client quickly unmaps and maps itself again. */
-        if (ev->parent != globalconf.protocol_screen->screen->root)
+        if (protocol_screen_getbyroot(ev->parent) == NULL)
             client_unmanage(c, true);
     }
 }

@@ -72,6 +72,7 @@ typedef struct protocol_screen_t protocol_screen_t;
 DO_ARRAY(protocol_screen_t, protocol_screen, DO_NOTHING)
 
 void protocol_screens_init(bool);
+protocol_screen_t *protocol_screen_getbyroot(xcb_window_t);
 
 #endif
 // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80

@@ -84,4 +84,13 @@ protocol_screens_init(bool no_argb)
     globalconf.protocol_screen = &globalconf.protocol_screens.tab[globalconf.default_screen];
 }
 
+protocol_screen_t *
+protocol_screen_getbyroot(xcb_window_t root)
+{
+    foreach(screen, globalconf.protocol_screens)
+        if (screen->screen->root == root)
+            return screen;
+    return NULL;
+}
+
 // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80

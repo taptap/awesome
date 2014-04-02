@@ -34,7 +34,7 @@ void ewmh_init(protocol_screen_t *);
 void ewmh_update_net_numbers_of_desktop(protocol_screen_t *);
 void ewmh_update_net_current_desktop(protocol_screen_t *);
 void ewmh_update_net_desktop_names(protocol_screen_t *);
-int ewmh_process_client_message(protocol_screen_t *, xcb_client_message_event_t *);
+int ewmh_process_client_message(xcb_client_message_event_t *);
 void ewmh_update_net_client_list_stacking(protocol_screen_t *);
 void ewmh_client_check_hints(client_t *);
 void ewmh_client_update_desktop(client_t *);

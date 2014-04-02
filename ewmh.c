@@ -380,14 +380,15 @@ ewmh_process_desktop(client_t *c, uint32_t desktop)
 }
 
 int
-ewmh_process_client_message(protocol_screen_t *proto_screen, xcb_client_message_event_t *ev)
+ewmh_process_client_message(xcb_client_message_event_t *ev)
 {
     client_t *c;
 
     if(ev->type == _NET_CURRENT_DESKTOP)
     {
+        protocol_screen_t *proto_screen = protocol_screen_getbyroot(ev->window);
         int idx = ev->data.data32[0];
-        if (idx >= 0 && idx < proto_screen->tags.len)
+        if (proto_screen && idx >= 0 && idx < proto_screen->tags.len)
         {
             luaA_object_push(globalconf.L, proto_screen->tags.tab[idx]);
             luaA_object_emit_signal(globalconf.L, -1, "request::select", 0);

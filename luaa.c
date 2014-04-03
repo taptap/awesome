@@ -63,14 +63,14 @@ static char *conffile;
  * \return True if such a manager is running.
  */
 static bool
-composite_manager_running(void)
+composite_manager_running(protocol_screen_t *proto_screen)
 {
     xcb_intern_atom_reply_t *atom_r;
     xcb_get_selection_owner_reply_t *selection_r;
     char *atom_name;
     bool result;
 
-    if(!(atom_name = xcb_atom_name_by_screen("_NET_WM_CM", globalconf.protocol_screen->screen_number)))
+    if(!(atom_name = xcb_atom_name_by_screen("_NET_WM_CM", proto_screen->screen_number)))
     {
         warn("error getting composite manager atom");
         return false;
@@ -94,6 +94,17 @@ composite_manager_running(void)
     p_delete(&selection_r);
 
     return result;
+}
+
+static int
+luaA_composite_manager_running(lua_State *L)
+{
+    /* XXX: Use helper function */
+    int number = luaL_checknumber(L, -1);
+    if (number < 1 || number > globalconf.protocol_screens.len)
+        luaL_error(L, "Invalid protocol screen number");
+    lua_pushboolean(L, composite_manager_running(&globalconf.protocol_screens.tab[number - 1]));
+    return 1;
 }
 
 /** Quit awesome.
@@ -246,12 +257,6 @@ luaA_awesome_index(lua_State *L)
         return 1;
     }
 
-    if(A_STREQ(buf, "composite_manager_running"))
-    {
-        lua_pushboolean(L, composite_manager_running());
-        return 1;
-    }
-
     return luaA_default_index(L);
 }
 
@@ -348,6 +353,7 @@ luaA_init(xdgHandle* xdg)
     {
         { "quit", luaA_quit },
         { "exec", luaA_exec },
+        { "composite_manager_running", luaA_composite_manager_running },
         { "spawn", luaA_spawn },
         { "restart", luaA_restart },
         { "connect_signal", luaA_awesome_connect_signal },

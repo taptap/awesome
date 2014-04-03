@@ -34,6 +34,7 @@ module("awesome")
 --- Spawn a program.
 -- @param cmd The command to launch. Either a string or a table of strings.
 -- @param use_sn Use startup-notification, true or false, default to true.
+-- @param protocol_screen The protocol screen number to spawn the process on.
 -- @return Process ID if everything is OK, or an error string if an error occured.
 
 --- Load an image

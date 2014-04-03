@@ -314,7 +314,9 @@ parse_command(lua_State *L, int idx)
  * \luastack
  * \lparam The command to launch.
  * \lparam Use startup-notification, true or false, default to true.
- * \lreturn Process ID if everything is OK, or an error string if an error occured.
+ * \lparam Protocol screen number, defaults to default screen.
+ * \lreturn Process ID if everything is OK, or an error string if an error occurred.
+ * \lreturn Startup ID if startup-notification is enabled
  */
 int
 luaA_spawn(lua_State *L)
@@ -323,9 +325,12 @@ luaA_spawn(lua_State *L)
     bool use_sn = true;
     gboolean retval;
     GPid pid;
+    protocol_screen_t *proto_screen = &globalconf.protocol_screens.tab[globalconf.default_screen];
 
     if(lua_gettop(L) >= 2)
         use_sn = luaA_checkboolean(L, 2);
+    if(lua_gettop(L) >= 3)
+        proto_screen = luaA_checkprotocolscreen(L, 3);
 
     argv = parse_command(L, 1);
     if(!argv || !argv[0])
@@ -334,10 +339,19 @@ luaA_spawn(lua_State *L)
         return 0;
     }
 
+    {
+        char *host, newdisplay[128];
+        int displayp, screenp;
+        xcb_parse_display(NULL, &host, &displayp, &screenp);
+        snprintf(newdisplay, sizeof(newdisplay), "%s:%d.%d", host, displayp, proto_screen->screen_number);
+        setenv("DISPLAY", newdisplay, 1);
+        p_delete(&host);
+    }
+
     SnLauncherContext *context = NULL;
     if(use_sn)
     {
-        context = sn_launcher_context_new(globalconf.sndisplay, globalconf.protocol_screen->screen_number);
+        context = sn_launcher_context_new(globalconf.sndisplay, proto_screen->screen_number);
         sn_launcher_context_set_name(context, "awesome");
         sn_launcher_context_set_description(context, "awesome spawn");
         sn_launcher_context_set_binary_name(context, argv[0]);

@@ -70,11 +70,16 @@ mouse_query_pointer(xcb_window_t window, int16_t *x, int16_t *y, xcb_window_t *c
  * \return True on success, false if an error occurred.
  */
 static bool
-mouse_query_pointer_root(int16_t *x, int16_t *y, xcb_window_t *child, uint16_t *mask)
+mouse_query_pointer_root(protocol_screen_t **protocol_screen, int16_t *x, int16_t *y, xcb_window_t *child, uint16_t *mask)
 {
-    xcb_window_t root = globalconf.protocol_screen->screen->root;
-
-    return mouse_query_pointer(root, x, y, child, mask);
+    foreach(screen, globalconf.protocol_screens)
+        if(mouse_query_pointer(screen->screen->root, x, y, child, mask))
+        {
+            if(protocol_screen)
+                *protocol_screen = screen;
+            return true;
+        }
+    return false;
 }
 
 /** Set the pointer position.
@@ -101,27 +106,38 @@ luaA_mouse_index(lua_State *L)
 {
     const char *attr = luaL_checkstring(L, 2);
     int16_t mouse_x, mouse_y;
+    protocol_screen_t *proto_screen;
     screen_t *screen;
 
-    /* attr is not "screen"?! */
-    if (A_STRNEQ(attr, "screen"))
-        return luaA_default_index(L);
-
-    if (!mouse_query_pointer_root(&mouse_x, &mouse_y, NULL, NULL))
+    if (A_STREQ(attr, "protocol_screen"))
     {
-        /* Nothing ever handles mouse.screen being nil. Lying is better than
-         * having lots of lua errors in this case.
-         */
-        if (globalconf.focus.client)
-            lua_pushnumber(L, screen_get_index(globalconf.focus.client->screen));
-        else
-            lua_pushnumber(L, 1);
+        if (!mouse_query_pointer_root(&proto_screen, &mouse_x, &mouse_y, NULL, NULL))
+            /* Uhm, not possible? */
+            return 0;
+        lua_pushinteger(L, protocol_screen_array_indexof(&globalconf.protocol_screens, proto_screen));
         return 1;
     }
 
-    screen = screen_getbycoord(mouse_x, mouse_y);
-    lua_pushnumber(L, screen_get_index(screen));
-    return 1;
+    if (A_STREQ(attr, "screen"))
+    {
+        if (!mouse_query_pointer_root(NULL, &mouse_x, &mouse_y, NULL, NULL))
+        {
+            /* Nothing ever handles mouse.screen being nil. Lying is better than
+             * having lots of lua errors in this case.
+             */
+            if (globalconf.focus.client)
+                lua_pushnumber(L, screen_get_index(globalconf.focus.client->screen));
+            else
+                lua_pushnumber(L, 1);
+            return 1;
+        }
+
+        screen = screen_getbycoord(mouse_x, mouse_y);
+        lua_pushnumber(L, screen_get_index(screen));
+        return 1;
+    }
+
+    return luaA_default_index(L);
 }
 
 /** Newindex for mouse.
@@ -138,7 +154,7 @@ luaA_mouse_newindex(lua_State *L)
         return luaA_default_newindex(L);
 
     screen = luaA_checkscreen(L, 3);
-    mouse_warp_pointer(globalconf.protocol_screen->screen->root, screen->geometry.x, screen->geometry.y);
+    mouse_warp_pointer(screen->proto_screen->screen->root, screen->geometry.x, screen->geometry.y);
     return 0;
 }
 
@@ -149,13 +165,15 @@ luaA_mouse_newindex(lua_State *L)
  * \param mask The button mask.
  */
 int
-luaA_mouse_pushstatus(lua_State *L, int x, int y, uint16_t mask)
+luaA_mouse_pushstatus(lua_State *L, protocol_screen_t *proto_screen, int x, int y, uint16_t mask)
 {
-    lua_createtable(L, 0, 2);
+    lua_createtable(L, 0, 3);
     lua_pushnumber(L, x);
     lua_setfield(L, -2, "x");
     lua_pushnumber(L, y);
     lua_setfield(L, -2, "y");
+    lua_pushnumber(L, protocol_screen_array_indexof(&globalconf.protocol_screens, proto_screen));
+    lua_setfield(L, -2, "protocol_screen");
 
     lua_createtable(L, 5, 0);
 
@@ -183,22 +201,30 @@ luaA_mouse_coords(lua_State *L)
     uint16_t mask;
     int x, y;
     int16_t mouse_x, mouse_y;
+    protocol_screen_t *proto_screen;
+    int screen_number;
 
     if(lua_gettop(L) >= 1)
     {
         luaA_checktable(L, 1);
         bool ignore_enter_notify = (lua_gettop(L) == 2 && luaA_checkboolean(L, 2));
 
-        if(!mouse_query_pointer_root(&mouse_x, &mouse_y, NULL, &mask))
+        if(!mouse_query_pointer_root(&proto_screen, &mouse_x, &mouse_y, NULL, &mask))
             return 0;
 
+        screen_number = luaA_getopt_number(L, 1, "protocol_screen", protocol_screen_array_indexof(&globalconf.protocol_screens, proto_screen));
         x = luaA_getopt_number(L, 1, "x", mouse_x);
         y = luaA_getopt_number(L, 1, "y", mouse_y);
+
+        /* FIXME: Write helper function for this and use it everywhere */
+        if (screen_number < 1 || screen_number > globalconf.protocol_screens.len)
+            luaL_error(L, "Invalid protocol screen number");
+        proto_screen = &globalconf.protocol_screens.tab[screen_number - 1];
 
         if(ignore_enter_notify)
             client_ignore_enterleave_events();
 
-        mouse_warp_pointer(globalconf.protocol_screen->screen->root, x, y);
+        mouse_warp_pointer(proto_screen->screen->root, x, y);
 
         if(ignore_enter_notify)
             client_restore_enterleave_events();
@@ -206,10 +232,10 @@ luaA_mouse_coords(lua_State *L)
         lua_pop(L, 1);
     }
 
-    if(!mouse_query_pointer_root(&mouse_x, &mouse_y, NULL, &mask))
+    if(!mouse_query_pointer_root(&proto_screen, &mouse_x, &mouse_y, NULL, &mask))
         return 0;
 
-    return luaA_mouse_pushstatus(L, mouse_x, mouse_y, mask);
+    return luaA_mouse_pushstatus(L, proto_screen, mouse_x, mouse_y, mask);
 }
 
 /** Get the client which is under the pointer.
@@ -224,7 +250,7 @@ luaA_mouse_object_under_pointer(lua_State *L)
     int16_t mouse_x, mouse_y;
     xcb_window_t child;
 
-    if(!mouse_query_pointer_root(&mouse_x, &mouse_y, &child, NULL))
+    if(!mouse_query_pointer_root(NULL, &mouse_x, &mouse_y, &child, NULL))
         return 0;
 
     drawin_t *drawin;

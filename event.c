@@ -109,12 +109,12 @@ DO_EVENT_HOOK_CALLBACK(keyb_t, key, XCB_KEY, key_array_t, event_key_match)
  * \return True if the event was handled.
  */
 static bool
-event_handle_mousegrabber(int x, int y, uint16_t mask)
+event_handle_mousegrabber(protocol_screen_t *proto_screen, int x, int y, uint16_t mask)
 {
     if(globalconf.mousegrabber != LUA_REFNIL)
     {
         lua_rawgeti(globalconf.L, LUA_REGISTRYINDEX, globalconf.mousegrabber);
-        mousegrabber_handleevent(globalconf.L, x, y, mask);
+        mousegrabber_handleevent(globalconf.L, proto_screen, x, y, mask);
         if(lua_pcall(globalconf.L, 1, 1, 0))
         {
             warn("error running function: %s", lua_tostring(globalconf.L, -1));
@@ -165,10 +165,11 @@ event_handle_button(xcb_button_press_event_t *ev)
 {
     client_t *c;
     drawin_t *drawin;
+    protocol_screen_t *proto_screen = protocol_screen_getbyroot(ev->root);
 
     globalconf.timestamp = ev->time;
 
-    if(event_handle_mousegrabber(ev->root_x, ev->root_y, 1 << (ev->detail - 1 + 8)))
+    if(event_handle_mousegrabber(proto_screen, ev->root_x, ev->root_y, 1 << (ev->detail - 1 + 8)))
         return;
 
     /* ev->state is
@@ -382,10 +383,11 @@ event_handle_motionnotify(xcb_motion_notify_event_t *ev)
 {
     drawin_t *w;
     client_t *c;
+    protocol_screen_t *proto_screen = protocol_screen_getbyroot(ev->root);
 
     globalconf.timestamp = ev->time;
 
-    if(event_handle_mousegrabber(ev->root_x, ev->root_y, ev->state))
+    if(event_handle_mousegrabber(proto_screen, ev->root_x, ev->root_y, ev->state))
         return;
 
     if((c = client_getbyframewin(ev->event)))

@@ -81,7 +81,6 @@ protocol_screens_init(bool no_argb)
     }
 
     assert(globalconf.default_screen < globalconf.protocol_screens.len);
-    globalconf.protocol_screen = &globalconf.protocol_screens.tab[globalconf.default_screen];
 }
 
 protocol_screen_t *

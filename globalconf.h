@@ -70,7 +70,6 @@ typedef struct
     screen_array_t screens;
     /** Protocol screens */
     protocol_screen_array_t protocol_screens;
-    protocol_screen_t *protocol_screen; /* XXX FIXME: Ugly hack so I don't have to fix everything at once */
     /** Root window key bindings */
     key_array_t keys;
     /** Root window mouse bindings */

@@ -41,7 +41,7 @@ luaA_selection_get(lua_State *L)
 {
     if(selection_window == XCB_NONE)
     {
-        xcb_screen_t *screen = globalconf.protocol_screen->screen;
+        xcb_screen_t *screen = globalconf.protocol_screens.tab[globalconf.default_screen].screen;
         uint32_t mask = XCB_CW_BACK_PIXEL | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK;
         uint32_t values[] = { screen->black_pixel, 1, XCB_EVENT_MASK_PROPERTY_CHANGE };
 

@@ -44,7 +44,7 @@ drawin_systray_kickout(drawin_t *w)
         /* Who! Check that we're not deleting a drawin with a systray, because it
          * may be its parent. If so, we reparent to root before, otherwise it will
          * hurt very much. */
-        systray_cleanup(globalconf.protocol_screen);
+        systray_cleanup(w->protocol_screen);
         xcb_reparent_window(globalconf.connection,
                             w->protocol_screen->systray.window,
                             w->protocol_screen->screen->root,
@@ -551,7 +551,7 @@ luaA_drawin_set_shape_bounding(lua_State *L, drawin_t *drawin)
     cairo_surface_t *surf = NULL;
     if(!lua_isnil(L, -1))
         surf = (cairo_surface_t *)lua_touserdata(L, -1);
-    xwindow_set_shape(globalconf.protocol_screen, drawin->window,
+    xwindow_set_shape(drawin->protocol_screen, drawin->window,
             drawin->geometry.width + 2*drawin->border_width,
             drawin->geometry.height + 2*drawin->border_width,
             XCB_SHAPE_SK_BOUNDING, surf, -drawin->border_width);
@@ -586,7 +586,7 @@ luaA_drawin_set_shape_clip(lua_State *L, drawin_t *drawin)
     cairo_surface_t *surf = NULL;
     if(!lua_isnil(L, -1))
         surf = (cairo_surface_t *)lua_touserdata(L, -1);
-    xwindow_set_shape(globalconf.protocol_screen, drawin->window, drawin->geometry.width,
+    xwindow_set_shape(drawin->protocol_screen, drawin->window, drawin->geometry.width,
             drawin->geometry.height, XCB_SHAPE_SK_CLIP, surf, 0);
     luaA_object_emit_signal(L, -3, "property::shape_clip", 0);
     return 0;

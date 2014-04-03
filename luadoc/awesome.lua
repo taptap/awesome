@@ -46,12 +46,14 @@ module("awesome")
 
 --- Change a xproperty.
 -- @param name The name of the X11 property
+-- @param protocol_screen The protocol screen whose root window should be used
 -- @param value The new value for the property
 -- @name set_xproperty
 -- @class function
 
 --- Get the value of a xproperty.
 -- @param name The name of the X11 property
+-- @param protocol_screen The protocol screen whose root window should be used
 -- @name get_xproperty
 -- @class function
 

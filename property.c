@@ -385,35 +385,38 @@ property_handle_propertynotify_xproperty(xcb_property_notify_event_t *ev)
     xproperty_t *prop;
     xproperty_t lookup = { .atom = ev->atom };
     buffer_t buf;
-    void *obj;
+    void *obj = NULL;
+    protocol_screen_t *proto_screen = NULL;
 
     prop = xproperty_array_lookup(&globalconf.xproperties, &lookup);
     if(!prop)
         /* Property is not registered */
         return;
 
-    if (ev->window != globalconf.protocol_screen->screen->root)
+    proto_screen = protocol_screen_getbyroot(ev->window);
+    if (!proto_screen)
     {
         obj = client_getbywin(ev->window);
         if(!obj)
             obj = drawin_getbywin(ev->window);
         if(!obj)
             return;
-    } else
-        obj = NULL;
+    }
 
     /* Get us the name of the property */
     buffer_inita(&buf, a_strlen(prop->name) + a_strlen("xproperty::") + 1);
     buffer_addf(&buf, "xproperty::%s", prop->name);
 
     /* And emit the right signal */
-    if (obj)
+    if (!proto_screen)
     {
         luaA_object_push(globalconf.L, obj);
         luaA_object_emit_signal(globalconf.L, -1, buf.s, 0);
         lua_pop(globalconf.L, 1);
-    } else
-        signal_object_emit(globalconf.L, &global_signals, buf.s, 0);
+    } else {
+        lua_pushinteger(globalconf.L, protocol_screen_array_indexof(&globalconf.protocol_screens, proto_screen));
+        signal_object_emit(globalconf.L, &global_signals, buf.s, 1);
+    }
     buffer_wipe(&buf);
 }
 
@@ -532,6 +535,15 @@ luaA_register_xproperty(lua_State *L)
     return 0;
 }
 
+static protocol_screen_t *
+get_protocol_screen(lua_State *L, int idx)
+{
+    int number = luaL_checknumber(L, idx);
+    if (number < 1 || number > globalconf.protocol_screens.len)
+        luaL_error(L, "Invalid protocol screen number");
+    return &globalconf.protocol_screens.tab[number - 1];
+}
+
 /** Set an xproperty.
  * \param L The Lua VM state.
  * \return The number of elements pushed on stack.
@@ -539,7 +551,7 @@ luaA_register_xproperty(lua_State *L)
 int
 luaA_set_xproperty(lua_State *L)
 {
-    return window_set_xproperty(L, globalconf.protocol_screen->screen->root, 1, 2);
+    return window_set_xproperty(L, get_protocol_screen(L, 2)->screen->root, 1, 3);
 }
 
 /** Get an xproperty.
@@ -549,7 +561,7 @@ luaA_set_xproperty(lua_State *L)
 int
 luaA_get_xproperty(lua_State *L)
 {
-    return window_get_xproperty(L, globalconf.protocol_screen->screen->root, 1);
+    return window_get_xproperty(L, get_protocol_screen(L, 2)->screen->root, 1);
 }
 
 // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80

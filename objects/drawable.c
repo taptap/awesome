@@ -84,6 +84,7 @@ drawable_set_protocol_screen(drawable_t *d, int didx, protocol_screen_t *proto_s
         return;
     d->proto_screen = proto_screen;
     drawable_set_surface(d, didx);
+    luaA_object_emit_signal(globalconf.L, didx, "property::protocol_screen", 0);
 }
 
 void
@@ -114,6 +115,16 @@ luaA_drawable_get_surface(lua_State *L, drawable_t *drawable)
 {
     /* Lua gets its own reference which it will have to destroy */
     lua_pushlightuserdata(L, cairo_surface_reference(drawable->surface));
+    return 1;
+}
+
+static int
+luaA_drawable_get_protocol_screen(lua_State *L, drawable_t *drawable)
+{
+    if (drawable->proto_screen == NULL)
+        lua_pushnil(L);
+    else
+        lua_pushinteger(L, 1 + protocol_screen_array_indexof(&globalconf.protocol_screens, drawable->proto_screen));
     return 1;
 }
 
@@ -168,6 +179,10 @@ drawable_class_setup(lua_State *L)
                      (lua_class_collector_t) drawable_wipe, NULL,
                      luaA_class_index_miss_property, luaA_class_newindex_miss_property,
                      drawable_methods, drawable_meta);
+    luaA_class_add_property(&drawable_class, "protocol_screen",
+                            NULL,
+                            (lua_class_propfunc_t) luaA_drawable_get_protocol_screen,
+                            NULL);
     luaA_class_add_property(&drawable_class, "surface",
                             NULL,
                             (lua_class_propfunc_t) luaA_drawable_get_surface,
@@ -182,6 +197,7 @@ drawable_class_setup(lua_State *L)
     signal_add(&drawable_class.signals, "property::width");
     signal_add(&drawable_class.signals, "property::x");
     signal_add(&drawable_class.signals, "property::y");
+    signal_add(&drawable_class.signals, "property::protocol_screen");
     signal_add(&drawable_class.signals, "property::surface");
 }
 

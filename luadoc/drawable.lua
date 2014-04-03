@@ -5,6 +5,7 @@ module("drawable")
 
 --- Drawable object.
 -- @field surface The drawable's cairo surface.
+-- @field protocol_screen The drawable's protocol screen number.
 -- @name drawable
 -- @class table
 

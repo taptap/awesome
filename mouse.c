@@ -114,7 +114,7 @@ luaA_mouse_index(lua_State *L)
         if (!mouse_query_pointer_root(&proto_screen, &mouse_x, &mouse_y, NULL, NULL))
             /* Uhm, not possible? */
             return 0;
-        lua_pushinteger(L, protocol_screen_array_indexof(&globalconf.protocol_screens, proto_screen));
+        luaA_pushprotocolscreen(L, proto_screen);
         return 1;
     }
 
@@ -154,7 +154,7 @@ luaA_mouse_newindex(lua_State *L)
         return luaA_default_newindex(L);
 
     screen = luaA_checkscreen(L, 3);
-    mouse_warp_pointer(screen->proto_screen->screen->root, screen->geometry.x, screen->geometry.y);
+    mouse_warp_pointer(screen->protocol_screen->screen->root, screen->geometry.x, screen->geometry.y);
     return 0;
 }
 
@@ -172,7 +172,7 @@ luaA_mouse_pushstatus(lua_State *L, protocol_screen_t *proto_screen, int x, int 
     lua_setfield(L, -2, "x");
     lua_pushnumber(L, y);
     lua_setfield(L, -2, "y");
-    lua_pushnumber(L, protocol_screen_array_indexof(&globalconf.protocol_screens, proto_screen));
+    luaA_pushprotocolscreen(L, proto_screen);
     lua_setfield(L, -2, "protocol_screen");
 
     lua_createtable(L, 5, 0);
@@ -216,10 +216,9 @@ luaA_mouse_coords(lua_State *L)
         x = luaA_getopt_number(L, 1, "x", mouse_x);
         y = luaA_getopt_number(L, 1, "y", mouse_y);
 
-        /* FIXME: Write helper function for this and use it everywhere */
-        if (screen_number < 1 || screen_number > globalconf.protocol_screens.len)
-            luaL_error(L, "Invalid protocol screen number");
-        proto_screen = &globalconf.protocol_screens.tab[screen_number - 1];
+        lua_pushnumber(L, screen_number);
+        proto_screen = luaA_checkprotocolscreen(L, -1);
+        lua_pop(L, 1);
 
         if(ignore_enter_notify)
             client_ignore_enterleave_events();

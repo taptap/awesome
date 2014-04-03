@@ -32,7 +32,7 @@ struct tag
     /** Tag name */
     char *name;
     /** protocol screen */
-    protocol_screen_t *proto_screen;
+    protocol_screen_t *protocol_screen;
     /** true if selected */
     bool selected;
     /** clients in this tag */
@@ -71,10 +71,10 @@ tag_view(lua_State *L, int udx, bool view)
     if(tag->selected != view)
     {
         tag->selected = view;
-        if(tag->proto_screen)
+        if(tag->protocol_screen)
         {
             banning_need_update();
-            ewmh_update_net_current_desktop(tag->proto_screen);
+            ewmh_update_net_current_desktop(tag->protocol_screen);
         }
 
         luaA_object_emit_signal(L, udx, "property::selected", 0);
@@ -166,17 +166,17 @@ tags_get_first_selected_index(protocol_screen_t *proto_screen)
 }
 
 static void
-tag_set_protocol_screen(lua_State *L, int tidx, tag_t *tag, protocol_screen_t *proto_screen)
+tag_set_protocol_screen(lua_State *L, int tidx, tag_t *tag, protocol_screen_t *protocol_screen)
 {
-    if(proto_screen == tag->proto_screen)
+    if(protocol_screen == tag->protocol_screen)
         return;
 
-    if(tag->proto_screen)
+    if(tag->protocol_screen)
     {
-        for (int i = 0; i < tag->proto_screen->tags.len; i++)
-            if(tag->proto_screen->tags.tab[i] == tag)
+        for (int i = 0; i < tag->protocol_screen->tags.len; i++)
+            if(tag->protocol_screen->tags.tab[i] == tag)
             {
-                tag_array_take(&tag->proto_screen->tags, i);
+                tag_array_take(&tag->protocol_screen->tags, i);
                 break;
             }
 
@@ -188,18 +188,18 @@ tag_set_protocol_screen(lua_State *L, int tidx, tag_t *tag, protocol_screen_t *p
         }
         luaA_object_unref(L, tag);
 
-        ewmh_update_net_numbers_of_desktop(tag->proto_screen);
-        ewmh_update_net_desktop_names(tag->proto_screen);
+        ewmh_update_net_numbers_of_desktop(tag->protocol_screen);
+        ewmh_update_net_desktop_names(tag->protocol_screen);
     }
 
-    tag->proto_screen = proto_screen;
+    tag->protocol_screen = protocol_screen;
 
-    if(tag->proto_screen)
+    if(tag->protocol_screen)
     {
         lua_pushvalue(L, tidx);
-        tag_array_append(&tag->proto_screen->tags, luaA_object_ref_class(L, -1, &tag_class));
-        ewmh_update_net_numbers_of_desktop(tag->proto_screen);
-        ewmh_update_net_desktop_names(tag->proto_screen);
+        tag_array_append(&tag->protocol_screen->tags, luaA_object_ref_class(L, -1, &tag_class));
+        ewmh_update_net_numbers_of_desktop(tag->protocol_screen);
+        ewmh_update_net_desktop_names(tag->protocol_screen);
     }
 
     luaA_object_emit_signal(L, tidx, "property::activated", 0);
@@ -279,6 +279,7 @@ luaA_tag_clients(lua_State *L)
 
 LUA_OBJECT_EXPORT_PROPERTY(tag, tag_t, name, lua_pushstring)
 LUA_OBJECT_EXPORT_PROPERTY(tag, tag_t, selected, lua_pushboolean)
+LUA_OBJECT_EXPORT_PROPERTY(tag, tag_t, protocol_screen, luaA_pushprotocolscreen)
 
 /** Set the tag name.
  * \param L The Lua VM state.
@@ -293,8 +294,8 @@ luaA_tag_set_name(lua_State *L, tag_t *tag)
     p_delete(&tag->name);
     a_iso2utf8(buf, len, &tag->name, NULL);
     luaA_object_emit_signal(L, -3, "property::name", 0);
-    if(tag->proto_screen)
-        ewmh_update_net_desktop_names(tag->proto_screen);
+    if(tag->protocol_screen)
+        ewmh_update_net_desktop_names(tag->protocol_screen);
     return 0;
 }
 
@@ -311,27 +312,12 @@ luaA_tag_set_selected(lua_State *L, tag_t *tag)
 }
 
 static int
-luaA_tag_get_protocol_screen(lua_State *L, tag_t *tag)
-{
-    if (tag->proto_screen == NULL)
-        lua_pushnil(L);
-    else
-        lua_pushinteger(L, 1 + protocol_screen_array_indexof(&globalconf.protocol_screens, tag->proto_screen));
-    return 1;
-}
-
-static int
 luaA_tag_set_protocol_screen(lua_State *L, tag_t *tag)
 {
     protocol_screen_t *proto_screen = NULL;
 
     if (!lua_isnil(L, -1))
-    {
-        int number = luaL_checknumber(L, -1);
-        if (number < 1 || number > globalconf.protocol_screens.len)
-            luaL_error(L, "Invalid protocol screen number");
-        proto_screen = &globalconf.protocol_screens.tab[number - 1];
-    }
+        proto_screen = luaA_checkprotocolscreen(L, -1);
 
     tag_set_protocol_screen(L, -3, tag, proto_screen);
     return 0;
@@ -341,7 +327,7 @@ static int
 luaA_tag_get_activated(lua_State *L, tag_t *tag)
 {
     luaA_deprecate(L, "protocol_screen property");
-    lua_pushboolean(L, tag->proto_screen != NULL);
+    lua_pushboolean(L, tag->protocol_screen != NULL);
     return 1;
 }
 

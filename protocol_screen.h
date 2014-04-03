@@ -33,6 +33,7 @@
 /* Forward declarations */
 typedef struct drawin_t drawin_t;
 typedef struct tag tag_t;
+typedef struct lua_State lua_State;
 
 ARRAY_TYPE(tag_t *, tag)
 
@@ -73,6 +74,9 @@ DO_ARRAY(protocol_screen_t, protocol_screen, DO_NOTHING)
 
 void protocol_screens_init(bool);
 protocol_screen_t *protocol_screen_getbyroot(xcb_window_t);
+
+protocol_screen_t *luaA_checkprotocolscreen(lua_State *, int);
+void luaA_pushprotocolscreen(lua_State *, protocol_screen_t *);
 
 #endif
 // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80

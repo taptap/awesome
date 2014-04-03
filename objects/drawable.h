@@ -40,7 +40,7 @@ struct drawable_t
     /** The geometry of the drawable (in root window coordinates). */
     area_t geometry;
     /** The protocol screen that this drawable is displayed on. */
-    protocol_screen_t *proto_screen;
+    protocol_screen_t *protocol_screen;
     /** Surface contents are undefined if this is false. */
     bool refreshed;
     /** Callback for refreshing. */

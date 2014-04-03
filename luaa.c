@@ -99,11 +99,7 @@ composite_manager_running(protocol_screen_t *proto_screen)
 static int
 luaA_composite_manager_running(lua_State *L)
 {
-    /* XXX: Use helper function */
-    int number = luaL_checknumber(L, -1);
-    if (number < 1 || number > globalconf.protocol_screens.len)
-        luaL_error(L, "Invalid protocol screen number");
-    lua_pushboolean(L, composite_manager_running(&globalconf.protocol_screens.tab[number - 1]));
+    lua_pushboolean(L, composite_manager_running(luaA_checkprotocolscreen(L, 1)));
     return 1;
 }
 

@@ -369,10 +369,10 @@ ewmh_process_desktop(client_t *c, uint32_t desktop)
         /* Pop the client, arguments are already popped */
         lua_pop(globalconf.L, 1);
     }
-    else if (idx >= 0 && idx < c->proto_screen->tags.len)
+    else if (idx >= 0 && idx < c->protocol_screen->tags.len)
     {
         luaA_object_push(globalconf.L, c);
-        luaA_object_push(globalconf.L, c->proto_screen->tags.tab[idx]);
+        luaA_object_push(globalconf.L, c->protocol_screen->tags.tab[idx]);
         luaA_object_emit_signal(globalconf.L, -2, "request::tag", 1);
         /* Pop the client, arguments are already popped */
         lua_pop(globalconf.L, 1);
@@ -439,8 +439,8 @@ ewmh_client_update_desktop(client_t *c)
 {
     int i;
 
-    for(i = 0; i < c->proto_screen->tags.len; i++)
-        if(is_client_tagged(c, c->proto_screen->tags.tab[i]))
+    for(i = 0; i < c->protocol_screen->tags.len; i++)
+        if(is_client_tagged(c, c->protocol_screen->tags.tab[i]))
         {
             xcb_change_property(globalconf.connection, XCB_PROP_MODE_REPLACE,
                                 c->window, _NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 32, 1, &i);

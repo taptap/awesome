@@ -93,4 +93,22 @@ protocol_screen_getbyroot(xcb_window_t root)
     return NULL;
 }
 
+protocol_screen_t *
+luaA_checkprotocolscreen(lua_State *L, int idx)
+{
+    int number = luaL_checkinteger(L, idx);
+    if (number < 1 || number > globalconf.protocol_screens.len)
+        luaL_error(L, "Invalid protocol screen number");
+    return &globalconf.protocol_screens.tab[number - 1];
+}
+
+void
+luaA_pushprotocolscreen(lua_State *L, protocol_screen_t *proto_screen)
+{
+    if (proto_screen == NULL)
+        lua_pushnil(L);
+    else
+        lua_pushinteger(L, 1 + protocol_screen_array_indexof(&globalconf.protocol_screens, proto_screen));
+}
+
 // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80

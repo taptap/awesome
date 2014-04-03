@@ -39,18 +39,18 @@ LUA_OBJECT_FUNCS(drawin_class, drawin_t, drawin)
 static void
 drawin_systray_kickout(drawin_t *w)
 {
-    if(w->proto_screen->systray.parent == w)
+    if(w->protocol_screen->systray.parent == w)
     {
         /* Who! Check that we're not deleting a drawin with a systray, because it
          * may be its parent. If so, we reparent to root before, otherwise it will
          * hurt very much. */
         systray_cleanup(globalconf.protocol_screen);
         xcb_reparent_window(globalconf.connection,
-                            w->proto_screen->systray.window,
-                            w->proto_screen->screen->root,
+                            w->protocol_screen->systray.window,
+                            w->protocol_screen->screen->root,
                             -512, -512);
 
-        w->proto_screen->systray.parent = NULL;
+        w->protocol_screen->systray.parent = NULL;
     }
 }
 
@@ -69,7 +69,7 @@ drawin_update_drawing(drawin_t *w, int widx)
 {
     /* If this drawin isn't visible, we don't need an up-to-date cairo surface
      * for it. (drawin_map() will later make sure we are called again) */
-    if(!w->proto_screen)
+    if(!w->protocol_screen)
         return;
 
     luaA_object_push_item(globalconf.L, widx, w->drawable);
@@ -168,20 +168,20 @@ drawin_refresh_pixmap_partial(drawin_t *drawin,
     /* Make cairo do all pending drawing */
     cairo_surface_flush(drawin->drawable->surface);
     xcb_copy_area(globalconf.connection, drawin->drawable->pixmap,
-                  drawin->window, drawin->proto_screen->gc, x, y, x, y,
+                  drawin->window, drawin->protocol_screen->gc, x, y, x, y,
                   w, h);
 }
 
 static void
 drawin_map(drawin_t *drawin, int widx)
 {
-    xcb_screen_t *s = drawin->proto_screen->screen;
+    xcb_screen_t *s = drawin->protocol_screen->screen;
 
     drawin->window = xcb_generate_id(globalconf.connection);
-    xcb_create_window(globalconf.connection, drawin->proto_screen->default_depth, drawin->window, s->root,
+    xcb_create_window(globalconf.connection, drawin->protocol_screen->default_depth, drawin->window, s->root,
                       drawin->geometry.x, drawin->geometry.y,
                       drawin->geometry.width, drawin->geometry.height,
-                      drawin->border_width, XCB_COPY_FROM_PARENT, drawin->proto_screen->visual->visual_id,
+                      drawin->border_width, XCB_COPY_FROM_PARENT, drawin->protocol_screen->visual->visual_id,
                       XCB_CW_BORDER_PIXEL | XCB_CW_BIT_GRAVITY
                       | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK | XCB_CW_COLORMAP
                       | XCB_CW_CURSOR,
@@ -195,8 +195,8 @@ drawin_map(drawin_t *drawin, int widx)
                           | XCB_EVENT_MASK_LEAVE_WINDOW | XCB_EVENT_MASK_STRUCTURE_NOTIFY
                           | XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_EXPOSURE
                           | XCB_EVENT_MASK_PROPERTY_CHANGE,
-                          drawin->proto_screen->default_cmap,
-                          xcursor_new(drawin->proto_screen->cursor_ctx, xcursor_font_fromstr(drawin->cursor))
+                          drawin->protocol_screen->default_cmap,
+                          xcursor_new(drawin->protocol_screen->cursor_ctx, xcursor_font_fromstr(drawin->cursor))
                       });
 
     /* Set the right properties */
@@ -248,12 +248,12 @@ drawin_getbywin(xcb_window_t win)
 }
 
 static void
-drawin_set_protocol_screen(lua_State *L, int udx, protocol_screen_t *proto_screen)
+drawin_set_protocol_screen(lua_State *L, int udx, protocol_screen_t *protocol_screen)
 {
     drawin_t *drawin = luaA_checkudata(L, udx, &drawin_class);
-    if(proto_screen != drawin->proto_screen)
+    if(protocol_screen != drawin->protocol_screen)
     {
-        if(drawin->proto_screen)
+        if(drawin->protocol_screen)
         {
             /* Active BMA */
             client_ignore_enterleave_events();
@@ -265,13 +265,13 @@ drawin_set_protocol_screen(lua_State *L, int udx, protocol_screen_t *proto_scree
             luaA_object_unref(globalconf.L, drawin);
         }
 
-        drawin->proto_screen = proto_screen;
+        drawin->protocol_screen = protocol_screen;
 
         luaA_object_push_item(globalconf.L, udx, drawin->drawable);
-        drawable_set_protocol_screen(drawin->drawable, -1, proto_screen);
+        drawable_set_protocol_screen(drawin->drawable, -1, protocol_screen);
         lua_pop(globalconf.L, 1);
 
-        if(drawin->proto_screen)
+        if(drawin->protocol_screen)
         {
             drawin_map(drawin, udx);
             /* duplicate drawin */
@@ -352,6 +352,7 @@ luaA_drawin_geometry(lua_State *L)
 
 LUA_OBJECT_EXPORT_PROPERTY(drawin, drawin_t, ontop, lua_pushboolean)
 LUA_OBJECT_EXPORT_PROPERTY(drawin, drawin_t, cursor, lua_pushstring)
+LUA_OBJECT_EXPORT_PROPERTY(drawin, drawin_t, protocol_screen, luaA_pushprotocolscreen)
 
 static int
 luaA_drawin_set_x(lua_State *L, drawin_t *drawin)
@@ -461,9 +462,9 @@ luaA_drawin_set_cursor(lua_State *L, drawin_t *drawin)
         {
             p_delete(&drawin->cursor);
             drawin->cursor = a_strdup(buf);
-            if(drawin->proto_screen)
+            if(drawin->protocol_screen)
             {
-                xcb_cursor_t cursor = xcursor_new(drawin->proto_screen->cursor_ctx, cursor_font);
+                xcb_cursor_t cursor = xcursor_new(drawin->protocol_screen->cursor_ctx, cursor_font);
                 xwindow_set_cursor(drawin->window, cursor);
             }
             luaA_object_emit_signal(L, -3, "property::cursor", 0);
@@ -507,34 +508,19 @@ static int
 luaA_drawin_get_visible(lua_State *L, drawin_t *drawin)
 {
     luaA_deprecate(L, "protocol_screen");
-    lua_pushboolean(L, drawin->proto_screen != NULL);
-    return 1;
-}
-
-static int
-luaA_drawin_get_protocol_screen(lua_State *L, drawin_t *drawin)
-{
-    if (drawin->proto_screen == NULL)
-        lua_pushnil(L);
-    else
-        lua_pushinteger(L, 1 + protocol_screen_array_indexof(&globalconf.protocol_screens, drawin->proto_screen));
+    lua_pushboolean(L, drawin->protocol_screen != NULL);
     return 1;
 }
 
 static int
 luaA_drawin_set_protocol_screen(lua_State *L, drawin_t *drawin)
 {
-    protocol_screen_t *proto_screen = NULL;
+    protocol_screen_t *protocol_screen = NULL;
 
     if (!lua_isnil(L, -1))
-    {
-        int number = luaL_checknumber(L, -1);
-        if (number < 1 || number > globalconf.protocol_screens.len)
-            luaL_error(L, "Invalid protocol screen number");
-        proto_screen = &globalconf.protocol_screens.tab[number - 1];
-    }
+        protocol_screen = luaA_checkprotocolscreen(L, -1);
 
-    drawin_set_protocol_screen(L, -3, proto_screen);
+    drawin_set_protocol_screen(L, -3, protocol_screen);
     return 0;
 }
 

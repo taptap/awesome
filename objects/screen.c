@@ -91,7 +91,7 @@ screen_add(lua_State *L, int sidx)
     foreach(screen_to_test, globalconf.screens)
         if(new_screen->geometry.x == (*screen_to_test)->geometry.x
            && new_screen->geometry.y == (*screen_to_test)->geometry.y
-           && new_screen->proto_screen == (*screen_to_test)->proto_screen)
+           && new_screen->protocol_screen == (*screen_to_test)->protocol_screen)
             {
                 /* we already have a screen for this area, just check if
                  * it's not bigger and drop it */
@@ -108,7 +108,7 @@ screen_add(lua_State *L, int sidx)
 }
 
 static bool
-screen_scan_randr(protocol_screen_t *proto_screen)
+screen_scan_randr(protocol_screen_t *protocol_screen)
 {
     bool result = false;
 
@@ -125,7 +125,7 @@ screen_scan_randr(protocol_screen_t *proto_screen)
             /* A quick XRandR recall:
              * You have CRTC that manages a part of a SCREEN.
              * Each CRTC can draw stuff on one or more OUTPUT. */
-            xcb_randr_get_screen_resources_cookie_t screen_res_c = xcb_randr_get_screen_resources(globalconf.connection, proto_screen->screen->root);
+            xcb_randr_get_screen_resources_cookie_t screen_res_c = xcb_randr_get_screen_resources(globalconf.connection, protocol_screen->screen->root);
             xcb_randr_get_screen_resources_reply_t *screen_res_r = xcb_randr_get_screen_resources_reply(globalconf.connection, screen_res_c, NULL);
 
             /* Only use the data from XRandR if there is more than one screen
@@ -155,7 +155,7 @@ screen_scan_randr(protocol_screen_t *proto_screen)
                 new_screen->geometry.y = crtc_info_r->y;
                 new_screen->geometry.width= crtc_info_r->width;
                 new_screen->geometry.height= crtc_info_r->height;
-                new_screen->proto_screen = proto_screen;
+                new_screen->protocol_screen = protocol_screen;
 
                 xcb_randr_output_t *randr_outputs = xcb_randr_get_crtc_info_outputs(crtc_info_r);
 
@@ -191,12 +191,12 @@ screen_scan_randr(protocol_screen_t *proto_screen)
 }
 
 static bool
-screen_scan_xinerama(protocol_screen_t *proto_screen)
+screen_scan_xinerama(protocol_screen_t *protocol_screen)
 {
     bool xinerama_is_active = false;
 
     /* Xinerama doesn't mix with Zaphod mode, reject everything but the first screen */
-    if (proto_screen != &globalconf.protocol_screens.tab[0])
+    if (protocol_screen != &globalconf.protocol_screens.tab[0])
         return false;
 
     /* Check for extension before checking for Xinerama */
@@ -226,7 +226,7 @@ screen_scan_xinerama(protocol_screen_t *proto_screen)
         {
             screen_t *s = screen_new(globalconf.L);
             s->geometry = screen_xsitoarea(xsi[screen]);
-            s->proto_screen = proto_screen;
+            s->protocol_screen = protocol_screen;
             assert(globalconf.protocol_screens.len == 1);
             screen_add(globalconf.L, -1);
         }
@@ -239,16 +239,16 @@ screen_scan_xinerama(protocol_screen_t *proto_screen)
     return false;
 }
 
-static void screen_scan_x11(protocol_screen_t *proto_screen)
+static void screen_scan_x11(protocol_screen_t *protocol_screen)
 {
     /* One screen only / Zaphod mode */
-    xcb_screen_t *xcb_screen = proto_screen->screen;
+    xcb_screen_t *xcb_screen = protocol_screen->screen;
     screen_t *s = screen_new(globalconf.L);
     s->geometry.x = 0;
     s->geometry.y = 0;
     s->geometry.width = xcb_screen->width_in_pixels;
     s->geometry.height = xcb_screen->height_in_pixels;
-    s->proto_screen = proto_screen;
+    s->protocol_screen = protocol_screen;
     screen_add(globalconf.L, -1);
 }
 
@@ -333,7 +333,7 @@ screen_area_get(screen_t *screen, bool strut)
             COMPUTE_STRUT(*c)
 
     foreach(drawin, globalconf.drawins)
-        if((*drawin)->proto_screen)
+        if((*drawin)->protocol_screen)
         {
             screen_t *d_screen =
                 screen_getbycoord((*drawin)->geometry.x, (*drawin)->geometry.y);
@@ -355,9 +355,9 @@ screen_area_get(screen_t *screen, bool strut)
  * \return The display area.
  */
 area_t
-display_area_get(protocol_screen_t *proto_screen)
+display_area_get(protocol_screen_t *protocol_screen)
 {
-    xcb_screen_t *s = proto_screen->screen;
+    xcb_screen_t *s = protocol_screen->screen;
     area_t area = { .x = 0,
                     .y = 0,
                     .width = s->width_in_pixels,
@@ -461,13 +461,7 @@ luaA_screen_module_index(lua_State *L)
 }
 
 LUA_OBJECT_EXPORT_PROPERTY(screen, screen_t, geometry, luaA_pusharea)
-
-static int
-luaA_screen_get_protocol_screen(lua_State *L, screen_t *s)
-{
-    lua_pushinteger(L, 1 + protocol_screen_array_indexof(&globalconf.protocol_screens, s->proto_screen));
-    return 1;
-}
+LUA_OBJECT_EXPORT_PROPERTY(screen, screen_t, protocol_screen, luaA_pushprotocolscreen)
 
 static int
 luaA_screen_get_index(lua_State *L, screen_t *s)

@@ -35,7 +35,7 @@ struct drawin_t
     /** Ontop */
     bool ontop;
     /** protocol screen */
-    protocol_screen_t *proto_screen;
+    protocol_screen_t *protocol_screen;
     /** Cursor */
     char *cursor;
     /** The drawable for this drawin. */

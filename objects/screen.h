@@ -40,7 +40,7 @@ struct a_screen
     /** The screen outputs informations */
     screen_output_array_t outputs;
     /** The protocol screen that screen belongs to. */
-    protocol_screen_t *proto_screen;
+    protocol_screen_t *protocol_screen;
 };
 ARRAY_FUNCS(screen_t *, screen, DO_NOTHING)
 

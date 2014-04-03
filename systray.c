@@ -317,12 +317,7 @@ systray_update(protocol_screen_t *proto_screen, int base_size, bool horizontal)
 int
 luaA_systray(lua_State *L)
 {
-    int number = luaL_checknumber(L, 1);
-    protocol_screen_t *proto_screen;
-
-    if (number < 1 || number > globalconf.protocol_screens.len)
-        luaL_error(L, "Invalid protocol screen number");
-    proto_screen = &globalconf.protocol_screens.tab[number - 1];
+    protocol_screen_t *proto_screen = luaA_checkprotocolscreen(L, 1);
 
     if(lua_gettop(L) != 1)
     {
@@ -335,7 +330,7 @@ luaA_systray(lua_State *L)
         const char *bg = luaL_checklstring(L, 7, &bg_len);
         color_t bg_color;
 
-        if(w->proto_screen != proto_screen)
+        if(w->protocol_screen != proto_screen)
             luaL_error(L, "Cannot put systray into drawin on different screen");
 
         if(color_init_reply(color_init_unchecked(&bg_color, proto_screen, bg, bg_len)))

@@ -38,7 +38,7 @@ drawable_allocator(lua_State *L, drawable_refresh_callback *callback, void *data
     d->refresh_data = data;
     d->refreshed = false;
     d->surface = NULL;
-    d->proto_screen = NULL;
+    d->protocol_screen = NULL;
     d->pixmap = XCB_NONE;
     return d;
 }
@@ -59,14 +59,14 @@ static void
 drawable_set_surface(drawable_t *d, int didx)
 {
     drawable_unset_surface(d);
-    if (d->geometry.width == 0 || d->geometry.height == 0 || !d->proto_screen)
+    if (d->geometry.width == 0 || d->geometry.height == 0 || !d->protocol_screen)
         return;
 
     d->pixmap = xcb_generate_id(globalconf.connection);
-    xcb_create_pixmap(globalconf.connection, d->proto_screen->default_depth, d->pixmap,
-                      d->proto_screen->screen->root, d->geometry.width, d->geometry.height);
+    xcb_create_pixmap(globalconf.connection, d->protocol_screen->default_depth, d->pixmap,
+                      d->protocol_screen->screen->root, d->geometry.width, d->geometry.height);
     d->surface = cairo_xcb_surface_create(globalconf.connection,
-                                          d->pixmap, d->proto_screen->visual,
+                                          d->pixmap, d->protocol_screen->visual,
                                           d->geometry.width, d->geometry.height);
     luaA_object_emit_signal(globalconf.L, didx, "property::surface", 0);
 }
@@ -78,11 +78,11 @@ drawable_wipe(drawable_t *d)
 }
 
 void
-drawable_set_protocol_screen(drawable_t *d, int didx, protocol_screen_t *proto_screen)
+drawable_set_protocol_screen(drawable_t *d, int didx, protocol_screen_t *protocol_screen)
 {
-    if (d->proto_screen == proto_screen)
+    if (d->protocol_screen == protocol_screen)
         return;
-    d->proto_screen = proto_screen;
+    d->protocol_screen = protocol_screen;
     drawable_set_surface(d, didx);
     luaA_object_emit_signal(globalconf.L, didx, "property::protocol_screen", 0);
 }
@@ -118,15 +118,7 @@ luaA_drawable_get_surface(lua_State *L, drawable_t *drawable)
     return 1;
 }
 
-static int
-luaA_drawable_get_protocol_screen(lua_State *L, drawable_t *drawable)
-{
-    if (drawable->proto_screen == NULL)
-        lua_pushnil(L);
-    else
-        lua_pushinteger(L, 1 + protocol_screen_array_indexof(&globalconf.protocol_screens, drawable->proto_screen));
-    return 1;
-}
+LUA_OBJECT_EXPORT_PROPERTY(drawable, drawable_t, protocol_screen, luaA_pushprotocolscreen)
 
 /** Refresh a drawable's content. This has to be called whenever some drawing to
  * the drawable's surface has been done and should become visible.

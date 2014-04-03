@@ -6,7 +6,7 @@ module("tag")
 --- Tag object.
 -- @field name Tag name.
 -- @field selected True if the tag is selected to be viewed.
--- @field activated True if the tag is active and can be used.
+-- @field protocol_screen Protocol screen that this tag belongs to.
 -- @class table
 -- @name tag
 

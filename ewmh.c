@@ -232,7 +232,7 @@ ewmh_update_net_numbers_of_desktop(protocol_screen_t *proto_screen)
 void
 ewmh_update_net_current_desktop(protocol_screen_t *proto_screen)
 {
-    uint32_t idx = tags_get_first_selected_index();
+    uint32_t idx = tags_get_first_selected_index(proto_screen);
 
     xcb_change_property(globalconf.connection, XCB_PROP_MODE_REPLACE,
                         proto_screen->screen->root,

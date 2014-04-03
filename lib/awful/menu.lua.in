@@ -236,7 +236,7 @@ function menu:exec(num, opts)
             action and type(action) == "function" and
             (not opts.mouse or (opts.mouse and (self.auto_expand or
             (self.active_child == self.child[num] and
-            self.active_child.wibox.visible))))
+            self.active_child.wibox.protocol_screen))))
         if can_invoke_action then
             local visible = action(self.child[num], item)
             if not visible then
@@ -250,7 +250,7 @@ function menu:exec(num, opts)
             self.active_child:hide()
         end
         self.active_child = self.child[num]
-        if not self.active_child.visible then
+        if not self.active_child.protocol_screen then
             self.active_child:show()
         end
     elseif type(cmd) == "string" then
@@ -319,7 +319,7 @@ function menu:show(args)
     set_coords(self, screen_index, coords)
 
     keygrabber.run(self._keygrabber)
-    self.wibox.visible = true
+    self.wibox.protocol_screen = screen[screen_index].protocol_screen
 end
 
 --- Hide a menu popup.
@@ -335,14 +335,14 @@ function menu:hide()
     self.sel = nil
 
     keygrabber.stop(self._keygrabber)
-    self.wibox.visible = false
+    self.wibox.protocol_screen = nil
 end
 
 --- Toggle menu visibility.
 -- @param _menu The menu to show if it's hidden, or to hide if it's shown.
 -- @param args.coords Menu position {x,y}
 function menu:toggle(args)
-    if self.wibox.visible then
+    if self.wibox.protocol_screen then
         self:hide()
     else
         self:show(args)
@@ -351,7 +351,7 @@ end
 
 --- Update menu content
 function menu:update()
-    if self.wibox.visible then
+    if self.wibox.protocol_screen then
         self:show({ coords = { x = self.x, y = self.y } })
     end
 end
@@ -433,7 +433,6 @@ function menu:delete(num)
     local item = self.items[num]
     if not item then return end
     item.widget:disconnect_signal("mouse::enter", item._mouse)
-    item.widget.visible = false
     table.remove(self.items, num)
     if self.sel == num then
         self:item_leave(self.sel)
@@ -662,7 +661,6 @@ function menu.new(args, parent)
         border_color = _menu.theme.border,
         border_width = _menu.theme.border_width,
         type = "popup_menu" })
-    _menu.wibox.visible = false
     _menu.wibox:set_widget(_menu.layout)
     set_size(_menu)
 

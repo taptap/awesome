@@ -265,17 +265,18 @@ screen_scan(void)
 }
 
 /** Return the Xinerama screen number where the coordinates belongs to.
- * \param screen The logical screen number.
+ * \param screen The protocol screen.
  * \param x X coordinate
  * \param y Y coordinate
  * \return Screen pointer or screen param if no match or no multi-head.
  */
 screen_t *
-screen_getbycoord(int x, int y)
+screen_getbycoord(protocol_screen_t *protocol_screen, int x, int y)
 {
     foreach(s, globalconf.screens)
         if((x < 0 || (x >= (*s)->geometry.x && x < (*s)->geometry.x + (*s)->geometry.width))
-           && (y < 0 || (y >= (*s)->geometry.y && y < (*s)->geometry.y + (*s)->geometry.height)))
+           && (y < 0 || (y >= (*s)->geometry.y && y < (*s)->geometry.y + (*s)->geometry.height))
+           && protocol_screen == (*s)->protocol_screen)
             return *s;
 
     /* No screen found, let's be creative. */
@@ -336,7 +337,7 @@ screen_area_get(screen_t *screen, bool strut)
         if((*drawin)->protocol_screen)
         {
             screen_t *d_screen =
-                screen_getbycoord((*drawin)->geometry.x, (*drawin)->geometry.y);
+                screen_getbycoord((*drawin)->protocol_screen, (*drawin)->geometry.x, (*drawin)->geometry.y);
             if (d_screen == screen)
                 COMPUTE_STRUT(*drawin)
         }

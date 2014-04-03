@@ -282,9 +282,9 @@ drawin_set_protocol_screen(lua_State *L, int udx, protocol_screen_t *protocol_sc
 
         luaA_object_emit_signal(L, udx, "property::protocol_screen", 0);
         luaA_object_emit_signal(L, udx, "property::visible", 0);
-        if(strut_has_value(&drawin->strut))
+        if(strut_has_value(&drawin->strut) && drawin->protocol_screen)
         {
-            luaA_object_push(L, screen_getbycoord(drawin->geometry.x, drawin->geometry.y));
+            luaA_object_push(L, screen_getbycoord(drawin->protocol_screen, drawin->geometry.x, drawin->geometry.y));
             luaA_object_emit_signal(L, -1, "property::workarea", 0);
             lua_pop(L, 1);
         }

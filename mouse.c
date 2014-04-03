@@ -120,7 +120,7 @@ luaA_mouse_index(lua_State *L)
 
     if (A_STREQ(attr, "screen"))
     {
-        if (!mouse_query_pointer_root(NULL, &mouse_x, &mouse_y, NULL, NULL))
+        if (!mouse_query_pointer_root(&proto_screen, &mouse_x, &mouse_y, NULL, NULL))
         {
             /* Nothing ever handles mouse.screen being nil. Lying is better than
              * having lots of lua errors in this case.
@@ -132,7 +132,7 @@ luaA_mouse_index(lua_State *L)
             return 1;
         }
 
-        screen = screen_getbycoord(mouse_x, mouse_y);
+        screen = screen_getbycoord(proto_screen, mouse_x, mouse_y);
         lua_pushnumber(L, screen_get_index(screen));
         return 1;
     }

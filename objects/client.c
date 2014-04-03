@@ -516,7 +516,7 @@ client_manage(xcb_window_t w, xcb_get_geometry_reply_t *wgeom, xcb_get_window_at
     client_array_push(&globalconf.clients, luaA_object_ref(globalconf.L, -1));
 
     /* Set the right screen */
-    screen_client_moveto(c, screen_getbycoord(wgeom->x, wgeom->y), false);
+    screen_client_moveto(c, screen_getbycoord(c->protocol_screen, wgeom->x, wgeom->y), false);
 
     /* Store initial geometry and emits signals so we inform that geometry have
      * been set. */
@@ -726,7 +726,7 @@ client_resize_do(client_t *c, area_t geometry, bool force_notice, bool honor_hin
 {
     bool send_notice = force_notice;
     bool hide_titlebars = c->fullscreen;
-    screen_t *new_screen = screen_getbycoord(geometry.x, geometry.y);
+    screen_t *new_screen = screen_getbycoord(c->protocol_screen, geometry.x, geometry.y);
 
     if (honor_hints)
         geometry = client_apply_size_hints(c, geometry);

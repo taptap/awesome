@@ -305,7 +305,6 @@ main(int argc, char **argv)
     xdgHandle xdg;
     bool no_argb = false;
     bool run_test = false;
-    xcb_query_tree_cookie_t tree_c;
     static struct option long_options[] =
     {
         { "help",    0, NULL, 'h' },
@@ -478,26 +477,33 @@ main(int argc, char **argv)
                                      ROOT_WINDOW_EVENT_MASK);
     }
 
-    /* Get the window tree associated to this screen */
-    tree_c = xcb_query_tree_unchecked(globalconf.connection,
-                                      globalconf.protocol_screen->screen->root);
+    /* Get the window tree associated to each screen */
+    {
+        int roots = globalconf.protocol_screens.len;
+        xcb_query_tree_cookie_t tree_c[roots];
 
-    /* we will receive events, stop grabbing server */
-    xcb_ungrab_server(globalconf.connection);
-    xcb_flush(globalconf.connection);
+        for(i = 0; i < roots; i++)
+            tree_c[i] = xcb_query_tree_unchecked(globalconf.connection,
+                                                 globalconf.protocol_screens.tab[i].screen->root);
 
-    /* Parse and run configuration file */
-    if (!luaA_parserc(&xdg, confpath, true))
-        fatal("couldn't find any rc file");
+        /* we will receive events, stop grabbing server */
+        xcb_ungrab_server(globalconf.connection);
+        xcb_flush(globalconf.connection);
 
-    p_delete(&confpath);
+        /* Parse and run configuration file */
+        if (!luaA_parserc(&xdg, confpath, true))
+            fatal("couldn't find any rc file");
 
-    xdgWipeHandle(&xdg);
+        p_delete(&confpath);
 
-    /* scan existing windows */
-    scan(tree_c);
+        xdgWipeHandle(&xdg);
 
-    xcb_flush(globalconf.connection);
+        /* scan existing windows */
+        for(i = 0; i < roots; i++)
+            scan(tree_c[i]);
+
+        xcb_flush(globalconf.connection);
+    }
 
     /* Setup the main context */
     g_main_context_set_poll_func(g_main_context_default(), &a_glib_poll);

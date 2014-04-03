@@ -39,12 +39,14 @@ module("root")
 -- @class function
 
 --- Get the wallpaper as a cairo surface or set it as a cairo pattern.
--- @param pattern A cairo pattern as light userdata
+-- @param protocol_screen A protocol screen number.
+-- @param pattern A cairo pattern as light userdata.
 -- @return A cairo surface or nothing.
 -- @name wallpaper
 -- @class function
 
 --- Get the attached tags.
+-- @param Protocol screen to use.
 -- @return A table with all tags.
 -- @name tags
 -- @class function

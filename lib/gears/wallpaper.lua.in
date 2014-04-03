@@ -34,7 +34,8 @@ end
 --         for drawing to this surface
 local function prepare_wallpaper(s)
     local geom = s and screen[s].geometry or root_geom
-    local img = surface(root.wallpaper())
+    local s = s or 1 -- FIXME!
+    local img = surface(root.wallpaper(screen[s].protocol_screen))
 
     if not img then
         -- No wallpaper yet, create an image surface for just the part we need
@@ -49,7 +50,7 @@ local function prepare_wallpaper(s)
     cr:rectangle(0, 0, geom.width, geom.height)
     cr:clip()
 
-    return geom, img, cr
+    return geom, img, cr, screen[s].protocol_screen
 end
 
 --- Get the size of a cairo surface
@@ -62,9 +63,10 @@ local function surface_size(surf)
 end
 
 --- Set the current wallpaper.
+-- @param protocol_screen The protocol screen to set the wallpaper on
 -- @param pattern The wallpaper that should be set. This can be a cairo surface,
 --                a description for gears.color or a cairo pattern.
-function wallpaper.set(pattern)
+function wallpaper.set(protocol_screen, pattern)
     if cairo.Surface:is_type_of(pattern) then
         pattern = cairo.Pattern.create_for_surface(pattern)
     end
@@ -74,7 +76,7 @@ function wallpaper.set(pattern)
     if not cairo.Pattern:is_type_of(pattern) then
         error("wallpaper.set() called with an invalid argument")
     end
-    root.wallpaper(pattern._native)
+    root.wallpaper(protocol_screen, pattern._native)
 end
 
 --- Set a centered wallpaper.
@@ -84,7 +86,7 @@ end
 -- @param background The background color that should be used. Gets handled via
 --                   gears.color. The default is black.
 function wallpaper.centered(surf, s, background)
-    local geom, img, cr = prepare_wallpaper(s)
+    local geom, img, cr, proto_screen = prepare_wallpaper(s)
     local surf = surface(surf)
     local background = color(background)
 
@@ -101,7 +103,7 @@ function wallpaper.centered(surf, s, background)
     cr:set_source_surface(surf, 0, 0)
     cr:paint()
 
-    wallpaper.set(img)
+    wallpaper.set(proto_screen, img)
 end
 
 --- Set a tiled wallpaper.
@@ -110,7 +112,7 @@ end
 --          all screens are set.
 -- @param offset This can be set to a table with entries x and y.
 function wallpaper.tiled(surf, s, offset)
-    local geom, img, cr = prepare_wallpaper(s)
+    local geom, img, cr, proto_screen = prepare_wallpaper(s)
 
     if offset then
         cr:translate(offset.x, offset.y)
@@ -122,7 +124,7 @@ function wallpaper.tiled(surf, s, offset)
     cr.operator = cairo.Operator.SOURCE
     cr:paint()
 
-    wallpaper.set(img)
+    wallpaper.set(proto_screen, img)
 end
 
 --- Set a maximized wallpaper.
@@ -133,7 +135,7 @@ end
 --                      The default is to honor the aspect ratio.
 -- @param offset This can be set to a table with entries x and y.
 function wallpaper.maximized(surf, s, ignore_aspect, offset)
-    local geom, img, cr = prepare_wallpaper(s)
+    local geom, img, cr, proto_screen = prepare_wallpaper(s)
     local surf = surface(surf)
     local w, h = surface_size(surf)
     local aspect_w = geom.width / w
@@ -153,7 +155,7 @@ function wallpaper.maximized(surf, s, ignore_aspect, offset)
     cr.operator = cairo.Operator.SOURCE
     cr:paint()
 
-    wallpaper.set(img)
+    wallpaper.set(proto_screen, img)
 end
 
 --- Set a fitting wallpaper.
@@ -163,7 +165,7 @@ end
 -- @param background The background color that should be used. Gets handled via
 --                   gears.color. The default is black.
 function wallpaper.fit(surf, s, background)
-    local geom, img, cr = prepare_wallpaper(s)
+    local geom, img, cr, proto_screen = prepare_wallpaper(s)
     local surf = surface(surf)
     local background = color(background)
 
@@ -185,7 +187,7 @@ function wallpaper.fit(surf, s, background)
     cr:set_source_surface(surf, 0, 0)
     cr:paint()
 
-    wallpaper.set(img)
+    wallpaper.set(proto_screen, img)
 end
 
 return wallpaper

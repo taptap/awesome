@@ -34,7 +34,7 @@ local function do_redraw(self)
     if not capi.awesome.composite_manager_running(self.drawable.protocol_screen) then
         -- This is pseudo-transparency: We draw the wallpaper in the background
         if not wallpaper then
-            wallpaper = surface(capi.root.wallpaper())
+            wallpaper = surface(capi.root.wallpaper(self.drawable.protocol_screen))
         end
         if wallpaper then
             cr.operator = cairo.Operator.SOURCE

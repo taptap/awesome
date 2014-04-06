@@ -329,7 +329,7 @@ luaA_spawn(lua_State *L)
 
     if(lua_gettop(L) >= 2)
         use_sn = luaA_checkboolean(L, 2);
-    if(lua_gettop(L) >= 3)
+    if(!lua_isnoneornil(L, 3))
         proto_screen = luaA_checkprotocolscreen(L, 3);
 
     argv = parse_command(L, 1);

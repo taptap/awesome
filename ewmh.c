@@ -94,14 +94,17 @@ ewmh_update_net_client_list(lua_State *L)
 {
     xcb_window_t *wins = p_alloca(xcb_window_t, globalconf.clients.len);
 
-    int n = 0;
-    foreach(client, globalconf.clients)
-        wins[n++] = (*client)->window;
-
     foreach(screen, globalconf.protocol_screens)
+    {
+        int n = 0;
+        foreach(client, globalconf.clients)
+            if((*client)->protocol_screen == screen)
+                wins[n++] = (*client)->window;
+
         xcb_change_property(globalconf.connection, XCB_PROP_MODE_REPLACE,
                             screen->screen->root,
                             _NET_CLIENT_LIST, XCB_ATOM_WINDOW, 32, n, wins);
+    }
 
     return 0;
 }
@@ -212,7 +215,8 @@ ewmh_update_net_client_list_stacking(protocol_screen_t *proto_screen)
     xcb_window_t *wins = p_alloca(xcb_window_t, globalconf.stack.len);
 
     foreach(client, globalconf.stack)
-        wins[n++] = (*client)->window;
+        if((*client)->protocol_screen == proto_screen)
+            wins[n++] = (*client)->window;
 
     xcb_change_property(globalconf.connection, XCB_PROP_MODE_REPLACE,
 			proto_screen->screen->root,

@@ -78,6 +78,7 @@ end
 function util.spawn(cmd, sn, ps)
     if cmd and cmd ~= "" then
         if sn == nil then sn = true end
+        if ps == nil then ps = capi.mouse.coords().protocol_screen end
         return capi.awesome.spawn(cmd, sn, ps)
     end
 end
@@ -88,7 +89,7 @@ end
 function util.spawn_with_shell(cmd, ps)
     if cmd and cmd ~= "" then
         cmd = { util.shell, "-c", cmd }
-        return capi.awesome.spawn(cmd, false, ps)
+        return util.spawn(cmd, false, ps)
     end
 end
 

@@ -212,7 +212,8 @@ luaA_mouse_coords(lua_State *L)
         if(!mouse_query_pointer_root(&proto_screen, &mouse_x, &mouse_y, NULL, &mask))
             return 0;
 
-        screen_number = luaA_getopt_number(L, 1, "protocol_screen", protocol_screen_array_indexof(&globalconf.protocol_screens, proto_screen));
+        screen_number = luaA_getopt_number(L, 1, "protocol_screen",
+                1 + protocol_screen_array_indexof(&globalconf.protocol_screens, proto_screen));
         x = luaA_getopt_number(L, 1, "x", mouse_x);
         y = luaA_getopt_number(L, 1, "y", mouse_y);
 

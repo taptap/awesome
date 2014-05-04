@@ -77,7 +77,7 @@ protocol_screens_init(bool no_argb)
         if (xcb_cursor_context_new(globalconf.connection, scr.screen, &scr.cursor_ctx) < 0)
             fatal("Failed to initialize xcb-cursor");
 
-        protocol_screen_array_push(&globalconf.protocol_screens, scr);
+        protocol_screen_array_append(&globalconf.protocol_screens, scr);
     }
 
     assert(globalconf.default_screen < globalconf.protocol_screens.len);

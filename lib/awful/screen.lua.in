@@ -31,6 +31,7 @@ data.padding = {}
 -- @param y The y coordinate
 -- @param default Optional default return value. If unspecified, 1 is returned.
 function screen.getbycoord(x, y, default)
+    -- XXX Make this work with protocol screens
     for i = 1, capi.screen:count() do
         local geometry = capi.screen[i].geometry
         if((x < 0 or (x >= geometry.x and x < geometry.x + geometry.width))
@@ -59,6 +60,7 @@ function screen.focus(_screen)
 
     pos.x = capi.screen[_screen].geometry.x + relx * capi.screen[_screen].geometry.width
     pos.y = capi.screen[_screen].geometry.y + rely * capi.screen[_screen].geometry.height
+    pos.protocol_screen = capi.screen[_screen].protocol_screen
 
    -- move cursor without triggering signals mouse::enter and mouse::leave
     capi.mouse.coords(pos, true)

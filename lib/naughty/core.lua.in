@@ -415,6 +415,8 @@ function naughty.notify(args)
         end
     end
 
+    notification.textbox = textbox
+
     local actionslayout = wibox.layout.fixed.vertical()
     local actions_max_width = 0
     local actions_total_height = 0

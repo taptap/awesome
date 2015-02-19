@@ -237,6 +237,22 @@ function naughty.getById(id)
     end
 end
 
+--- Install expiration timer for notification object
+local function set_up_timer(notification, timeout)
+    local die = function (reason)
+        naughty.destroy(notification, reason)
+    end
+    if timeout > 0 then
+        local timer_die = timer { timeout = timeout }
+        timer_die:connect_signal("timeout", function() die(naughty.notificationClosedReason.expired) end)
+        if not suspended then
+            timer_die:start()
+        end
+        notification.timer = timer_die
+    end
+    notification.die = die
+end
+
 --- Set new notification timeout
 -- @param notification Notification object, which timer is to be reset
 -- @param new_timeout Time in seconds after which notification disappears
@@ -244,16 +260,7 @@ function naughty.reset_timer(notification, new_timeout)
     if notification.timer then notification.timer:stop() end
 
     local timeout = timeout or notification.timeout
-    local die = function (reason)
-	naughty.destroy(notification, reason)
-    end
-    if timeout > 0 then
-        local timer_die = timer { timeout = timeout }
-        timer_die:connect_signal("timeout", function() die(naughty.notificationClosedReason.expired) end)
-	notification.timer = timer_die
-    end
-
-    notification.die = die
+    set_up_timer(notification, timeout)
     notification.timeout = timeout
 
     notification.timer:start()
@@ -390,18 +397,7 @@ function naughty.notify(args)
     if title then title = title .. "\n" else title = "" end
 
     -- hook destroy
-    local die = function (reason)
-        naughty.destroy(notification, reason)
-    end
-    if timeout > 0 then
-        local timer_die = timer { timeout = timeout }
-        timer_die:connect_signal("timeout", function() die(naughty.notificationClosedReason.expired) end)
-        if not suspended then
-            timer_die:start()
-        end
-        notification.timer = timer_die
-    end
-    notification.die = die
+    set_up_timer(notification, timeout)
 
     local run = function ()
         if args.run then

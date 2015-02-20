@@ -237,7 +237,9 @@ function naughty.getById(id)
     end
 end
 
---- Install expiration timer for notification object
+--- Install expiration timer for notification object.
+-- @tparam notification notification Notification object.
+-- @tparam number timeout Time in seconds to be set as expiration timeout.
 local function set_up_timer(notification, timeout)
     local die = function (reason)
         naughty.destroy(notification, reason)
@@ -253,9 +255,10 @@ local function set_up_timer(notification, timeout)
     notification.die = die
 end
 
---- Set new notification timeout
--- @param notification Notification object, which timer is to be reset
--- @param new_timeout Time in seconds after which notification disappears
+--- Set new notification timeout.
+-- @tparam notification notification Notification object, which timer is to be reset.
+-- @tparam number new_timeout Time in seconds after which notification disappears.
+-- @return None.
 function naughty.reset_timer(notification, new_timeout)
     if notification.timer then notification.timer:stop() end
 
@@ -266,7 +269,11 @@ function naughty.reset_timer(notification, new_timeout)
     notification.timer:start()
 end
 
---- Escape and set title and text for notification object
+--- Escape and set title and text for notification object.
+-- @tparam notification notification Notification object.
+-- @tparam string title Title of notification.
+-- @tparam string text Main text of notification.
+-- @return None.
 local function set_up_text(notification, title, text)
     local escape_pattern = "[<>&]"
     local escape_subs = { ['<'] = "&lt;", ['>'] = "&gt;", ['&'] = "&amp;" }
@@ -296,10 +303,11 @@ local function set_up_text(notification, title, text)
     end
 end
 
---- Replace title and text of an existing notification
--- @param notification Notification object, which contents are to be replaced
--- @param new_title New title of notification. If not specified, old title remains unchanged
--- @param new_text New text of notification. If not specified, old text remains unchanged
+--- Replace title and text of an existing notification.
+-- @tparam notification notification Notification object, which contents are to be replaced.
+-- @tparam string new_title New title of notification. If not specified, old title remains unchanged.
+-- @tparam string new_text New text of notification. If not specified, old text remains unchanged.
+-- @return None.
 function naughty.replace_text(notification, new_title, new_text)
     local title = new_title
 

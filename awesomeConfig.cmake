@@ -8,21 +8,10 @@ set(CODENAME "The Fox")
 
 project(${PROJECT_AWE_NAME} C)
 
-set(CMAKE_BUILD_TYPE RELEASE)
-
 option(WITH_DBUS "build with D-BUS" ON)
 option(GENERATE_MANPAGES "generate manpages" ON)
 option(COMPRESS_MANPAGES "compress manpages" ON)
 option(GENERATE_DOC "generate API documentation" ON)
-
-# {{{ CFLAGS
-add_definitions(-O1 -std=gnu99 -ggdb3 -rdynamic -fno-strict-aliasing -Wall -Wextra
-    -Wchar-subscripts -Wundef -Wshadow -Wcast-align -Wwrite-strings
-    -Wsign-compare -Wunused -Wno-unused-parameter -Wuninitialized -Winit-self
-    -Wpointer-arith -Wformat-nonliteral
-    -Wno-format-zero-length -Wmissing-format-attribute -Wmissing-prototypes
-    -Wstrict-prototypes)
-# }}}
 
 # {{{ Endianness
 include(TestBigEndian)
@@ -44,7 +33,6 @@ macro(a_find_program var prg req)
 endmacro()
 
 a_find_program(GIT_EXECUTABLE git FALSE)
-a_find_program(HOSTNAME_EXECUTABLE hostname FALSE)
 # programs needed for man pages
 a_find_program(ASCIIDOC_EXECUTABLE asciidoc FALSE)
 a_find_program(XMLTO_EXECUTABLE xmlto FALSE)
@@ -54,14 +42,20 @@ a_find_program(LDOC_EXECUTABLE ldoc FALSE)
 if(NOT LDOC_EXECUTABLE)
     a_find_program(LDOC_EXECUTABLE ldoc.lua FALSE)
 endif()
+if(LDOC_EXECUTABLE)
+    execute_process(COMMAND sh -c "${LDOC_EXECUTABLE} --sadly-ldoc-has-no-version-option 2>&1  | grep ' vs 1.4.5'"
+                    OUTPUT_VARIABLE LDOC_VERSION_RESULT)
+    if(NOT LDOC_VERSION_RESULT STREQUAL "")
+        message(WARNING "Ignoring LDoc, because version 1.4.5 is known to be broken")
+        unset(LDOC_EXECUTABLE CACHE)
+    endif()
+endif()
 # theme graphics
 a_find_program(CONVERT_EXECUTABLE convert TRUE)
-# doxygen
-include(FindDoxygen)
 # pkg-config
 include(FindPkgConfig)
-# lua 5.1
-include(FindLua51)
+# lua
+include(FindLua)
 # }}}
 
 # {{{ Check if documentation can be build
@@ -91,14 +85,16 @@ endif()
 # }}}
 
 # {{{ Version stamp
-if(EXISTS ${SOURCE_DIR}/.git/HEAD AND GIT_EXECUTABLE)
+if(OVERRIDE_VERSION)
+    set(VERSION ${OVERRIDE_VERSION})
+elseif(EXISTS ${SOURCE_DIR}/.git/HEAD AND GIT_EXECUTABLE)
     # get current version
     execute_process(
         COMMAND ${GIT_EXECUTABLE} describe --dirty
         WORKING_DIRECTORY ${SOURCE_DIR}
         OUTPUT_VARIABLE VERSION
         OUTPUT_STRIP_TRAILING_WHITESPACE)
-    # file the git-version-stamp.sh script will look into
+    # File the build-utils/git-version-stamp.sh script will look into.
     set(VERSION_STAMP_FILE ${BUILD_DIR}/.version_stamp)
     file(WRITE ${VERSION_STAMP_FILE} ${VERSION})
     # create a version_stamp target later
@@ -107,14 +103,6 @@ elseif( EXISTS ${SOURCE_DIR}/.version_stamp )
     # get version from version stamp
     file(READ ${SOURCE_DIR}/.version_stamp VERSION)
 endif()
-# }}}
-
-# {{{ Get hostname
-execute_process(
-    COMMAND ${HOSTNAME_EXECUTABLE}
-    WORKING_DIRECTORY ${SOURCE_DIR}
-    OUTPUT_VARIABLE BUILDHOSTNAME
-    OUTPUT_STRIP_TRAILING_WHITESPACE)
 # }}}
 
 # {{{ Required libraries
@@ -140,14 +128,57 @@ pkg_check_modules(AWESOME_REQUIRED REQUIRED
     xcb-util>=0.3.8
     xcb-keysyms>=0.3.4
     xcb-icccm>=0.3.8
+    # NOTE: it's not clear what version is required, but 1.10 works at least.
+    # See https://github.com/awesomeWM/awesome/pull/149#issuecomment-94208356.
+    xcb-xkb
+    xkbcommon
+    xkbcommon-x11
     cairo-xcb
     libstartup-notification-1.0>=0.10
     xproto>=7.0.15
-    libxdg-basedir>=1.0.0)
+    libxdg-basedir>=1.0.0
+    xcb-xrm)
 
 if(NOT AWESOME_REQUIRED_FOUND OR NOT AWESOME_COMMON_REQUIRED_FOUND)
     message(FATAL_ERROR)
 endif()
+
+# On Mac OS X, the executable of Awesome has to be linked against libiconv
+# explicitly.  Unfortunately, libiconv doesn't have its pkg-config file,
+# and CMake doesn't provide a module for looking up the library.  Thus, we
+# have to do everything for ourselves...
+if(APPLE)
+    if(NOT DEFINED AWESOME_ICONV_SEARCH_PATHS)
+        set(AWESOME_ICONV_SEARCH_PATHS /opt/local /opt /usr/local /usr)
+    endif()
+
+    if(NOT DEFINED AWESOME_ICONV_INCLUDE_DIR)
+        find_path(AWESOME_ICONV_INCLUDE_DIR
+                  iconv.h
+                  PATHS ${AWESOME_ICONV_SEARCH_PATHS}
+                  PATH_SUFFIXES include
+                  NO_CMAKE_SYSTEM_PATH)
+    endif()
+
+    if(NOT DEFINED AWESOME_ICONV_LIBRARY_PATH)
+        get_filename_component(AWESOME_ICONV_BASE_DIRECTORY ${AWESOME_ICONV_INCLUDE_DIR} DIRECTORY)
+        find_library(AWESOME_ICONV_LIBRARY_PATH
+                     NAMES iconv
+                     HINTS ${AWESOME_ICONV_BASE_DIRECTORY}
+                     PATH_SUFFIXES lib)
+    endif()
+
+    if(NOT DEFINED AWESOME_ICONV_LIBRARY_PATH)
+        message(FATAL_ERROR "Looking for iconv library - not found.")
+    else()
+        message(STATUS "Looking for iconv library - found: ${AWESOME_ICONV_LIBRARY_PATH}")
+    endif()
+
+    set(AWESOME_REQUIRED_LDFLAGS
+        ${AWESOME_REQUIRED_LDFLAGS} ${AWESOME_ICONV_LIBRARY_PATH})
+    set(AWESOME_REQUIRED_INCLUDE_DIRS
+        ${AWESOME_REQUIRED_INCLUDE_DIRS} ${AWESOME_ICONV_INCLUDE_DIR})
+endif(APPLE)
 
 macro(a_find_library variable library)
     find_library(${variable} ${library})
@@ -174,25 +205,25 @@ else()
     message(STATUS "checking for execinfo -- not found")
 endif()
 
-# __builtin_clz is available since gcc 3.4
-try_compile(HAS___BUILTIN_CLZ
-    ${CMAKE_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/build-tests/__builtin_clz.c)
-if(HAS___BUILTIN_CLZ)
-    message(STATUS "checking for __builtin_clz -- yes")
+# Do we need libm for round()?
+check_function_exists(round HAS_ROUND_WITHOUT_LIBM)
+if(NOT HAS_ROUND_WITHOUT_LIBM)
+    SET(CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES} m)
+    set(AWESOME_REQUIRED_LDFLAGS ${AWESOME_REQUIRED_LDFLAGS} m)
+    check_function_exists(round HAS_ROUND_WITH_LIBM)
+    if(NOT HAS_ROUND_WITH_LIBM)
+        message(FATAL_ERROR "Did not find round()")
+    endif()
+    message(STATUS "checking for round -- in libm")
 else()
-    message(STATUS "checking for __builtin_clz -- no")
-endif()
-
-# Error check
-if(NOT LUA51_FOUND AND NOT LUA50_FOUND) # This is a workaround to a cmake bug
-    message(FATAL_ERROR "lua library not found")
+    message(STATUS "checking for round -- builtin")
 endif()
 
 set(AWESOME_REQUIRED_LDFLAGS
     ${AWESOME_COMMON_REQUIRED_LDFLAGS}
     ${AWESOME_REQUIRED_LDFLAGS}
-    ${LUA_LIBRARIES})
+    ${LUA_LIBRARIES}
+    )
 
 set(AWESOME_REQUIRED_INCLUDE_DIRS
     ${AWESOME_COMMON_REQUIRED_INCLUDE_DIRS}
@@ -235,6 +266,13 @@ else()
     set(XDG_CONFIG_DIR ${SYSCONFDIR}/xdg CACHE PATH "xdg config directory")
 endif()
 
+# setting AWESOME_DATA_PATH
+if(DEFINED AWESOME_DATA_PATH)
+    set(AWESOME_DATA_PATH ${AWESOME_DATA_PATH} CACHE PATH "awesome share directory")
+else()
+    set(AWESOME_DATA_PATH ${CMAKE_INSTALL_PREFIX}/share/${PROJECT_AWE_NAME} CACHE PATH "awesome share directory")
+endif()
+
 # setting AWESOME_DOC_PATH
 if(DEFINED AWESOME_DOC_PATH)
     set(AWESOME_DOC_PATH ${AWESOME_DOC_PATH} CACHE PATH "awesome docs directory")
@@ -260,39 +298,94 @@ endif()
 mark_as_advanced(CMAKE_INSTALL_CMAKE_INSTALL_PREFIX)
 
 set(AWESOME_VERSION          ${VERSION})
-set(AWESOME_COMPILE_MACHINE  ${CMAKE_SYSTEM_PROCESSOR})
-set(AWESOME_COMPILE_HOSTNAME ${BUILDHOSTNAME})
-set(AWESOME_COMPILE_BY       $ENV{USER})
 set(AWESOME_RELEASE          ${CODENAME})
 set(AWESOME_SYSCONFDIR       ${XDG_CONFIG_DIR}/${PROJECT_AWE_NAME})
-set(AWESOME_DATA_PATH        ${CMAKE_INSTALL_PREFIX}/share/${PROJECT_AWE_NAME})
 set(AWESOME_LUA_LIB_PATH     ${AWESOME_DATA_PATH}/lib)
 set(AWESOME_ICON_PATH        ${AWESOME_DATA_PATH}/icons)
 set(AWESOME_THEMES_PATH      ${AWESOME_DATA_PATH}/themes)
 # }}}
 
-# {{{ Configure files
-file(GLOB_RECURSE awesome_lua_configure_files RELATIVE ${SOURCE_DIR} ${SOURCE_DIR}/lib/*.lua.in ${SOURCE_DIR}/themes/*/*.lua.in)
-set(AWESOME_CONFIGURE_FILES
-    ${awesome_lua_configure_files}
-    config.h.in
-    config.ld.in
-    awesomerc.lua.in
-    awesome-version-internal.h.in
-    awesome.doxygen.in)
 
-macro(a_configure_file file)
-    string(REGEX REPLACE ".in\$" "" outfile ${file})
-    message(STATUS "Configuring ${outfile}")
-    configure_file(${SOURCE_DIR}/${file}
-                   ${BUILD_DIR}/${outfile}
-                   ESCAPE_QUOTE
-                   @ONLY)
-endmacro()
+if(GENERATE_DOC)
+    # Load the common documentation
+    include(docs/load_ldoc.cmake)
+
+    # Use `include`, rather than `add_subdirectory`, to keep the variables
+    # The file is a valid CMakeLists.txt and can be executed directly if only
+    # the image artefacts are needed.
+    include(tests/examples/CMakeLists.txt)
+
+    # Generate the widget lists
+    include(docs/widget_lists.cmake)
+endif()
+
+# {{{ Configure files
+file(GLOB awesome_c_configure_files RELATIVE ${SOURCE_DIR}
+    ${SOURCE_DIR}/*.c
+    ${SOURCE_DIR}/*.h
+    ${SOURCE_DIR}/common/*.c
+    ${SOURCE_DIR}/common/*.h
+    ${SOURCE_DIR}/objects/*.c
+    ${SOURCE_DIR}/objects/*.h)
+file(GLOB_RECURSE awesome_lua_configure_files RELATIVE ${SOURCE_DIR}
+    ${SOURCE_DIR}/lib/*.lua
+    ${SOURCE_DIR}/themes/*/*.lua)
+set(AWESOME_CONFIGURE_FILES
+    ${awesome_c_configure_files}
+    ${awesome_lua_configure_files}
+    config.h
+    docs/config.ld
+    awesome-version-internal.h)
 
 foreach(file ${AWESOME_CONFIGURE_FILES})
-    a_configure_file(${file})
+    configure_file(${SOURCE_DIR}/${file}
+                   ${BUILD_DIR}/${file}
+                   ESCAPE_QUOTES
+                   @ONLY)
 endforeach()
 #}}}
 
-# vim: filetype=cmake:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80
+# {{{ Generate some aggregated documentation from lua script
+add_custom_command(
+        OUTPUT ${BUILD_DIR}/docs/06-appearance.md
+        COMMAND lua ${SOURCE_DIR}/docs/06-appearance.md.lua
+        ${BUILD_DIR}/docs/06-appearance.md
+)
+
+add_custom_command(
+        OUTPUT ${BUILD_DIR}/awesomerc.lua ${BUILD_DIR}/docs/05-awesomerc.md
+        COMMAND lua ${SOURCE_DIR}/docs/05-awesomerc.md.lua
+        ${BUILD_DIR}/docs/05-awesomerc.md ${SOURCE_DIR}/awesomerc.lua
+        ${BUILD_DIR}/awesomerc.lua
+)
+
+# Create a target for the auto-generated awesomerc.lua
+add_custom_target(generate_awesomerc DEPENDS ${BUILD_DIR}/awesomerc.lua)
+
+
+#}}}
+
+# {{{ Copy additional files
+file(GLOB awesome_md_docs RELATIVE ${SOURCE_DIR}
+    ${SOURCE_DIR}/docs/*.md)
+set(AWESOME_ADDITIONAL_FILES
+    ${awesome_md_docs})
+
+foreach(file ${AWESOME_ADDITIONAL_FILES})
+    configure_file(${SOURCE_DIR}/${file}
+                   ${BUILD_DIR}/${file}
+                   @ONLY)
+endforeach()
+#}}}
+
+# The examples coverage need to be done again after the configure_file has
+# inserted the additional code. Otherwise, the result will be off, rendering
+# the coverage useless as a tool to track untested code.
+if(GENERATE_DOC AND DO_COVERAGE)
+    message(STATUS "Running tests again with coverage")
+    set(USE_LCOV 1)
+
+    include(tests/examples/CMakeLists.txt)
+endif()
+
+# vim: filetype=cmake:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80:foldmethod=marker

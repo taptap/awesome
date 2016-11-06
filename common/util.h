@@ -237,7 +237,7 @@ static inline int a_strcasecmp(const char *a, const char *b)
 }
 
 #define  A_STREQ_CASE(a, b) (((a) == (b)) || a_strcasecmp(a, b) == 0)
-#define A_STRNEQ_CASE(a, b) (!A_STRCASEEQ(a, b))
+#define A_STRNEQ_CASE(a, b) (!A_STREQ_CASE(a, b))
 
 /** \brief \c NULL resistant strncmp.
  * \param[in]  a     the first string.
@@ -318,6 +318,8 @@ void _fatal(int, const char *, const char *, ...)
                                 string, ## __VA_ARGS__)
 void _warn(int, const char *, const char *, ...)
     __attribute__ ((format(printf, 3, 4)));
+
+const char *a_current_time_str(void);
 
 void a_exec(const char *);
 

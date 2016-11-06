@@ -105,32 +105,21 @@ property_update_wm_transient_for(client_t *c, xcb_get_property_cookie_t cookie)
 {
     lua_State *L = globalconf_get_lua_State();
     xcb_window_t trans;
-    int counter;
-    client_t *tc, *tmp;
 
     if(!xcb_icccm_get_wm_transient_for_reply(globalconf.connection,
 					     cookie,
 					     &trans, NULL))
             return;
 
-    tmp = tc = client_getbywin(trans);
+    c->transient_for_window = trans;
 
     luaA_object_push(L, c);
-    client_set_type(L, -1, WINDOW_TYPE_DIALOG);
+    if (!c->has_NET_WM_WINDOW_TYPE)
+        client_set_type(L, -1, trans == XCB_NONE ? WINDOW_TYPE_NORMAL : WINDOW_TYPE_DIALOG);
     client_set_above(L, -1, false);
-
-    /* Verify that there are no loops in the transient_for relation after we are done */
-    for(counter = 0; tmp != NULL && counter <= globalconf.stack.len; counter++)
-    {
-        if (tmp == c)
-            /* We arrived back at the client we started from, so there is a loop */
-            counter = globalconf.stack.len+1;
-        tmp = tmp->transient_for;
-    }
-    if (counter <= globalconf.stack.len)
-        client_set_transient_for(L, -1, tc);
-
     lua_pop(L, 1);
+
+    client_find_transient_for(c);
 }
 
 xcb_get_property_cookie_t
@@ -273,7 +262,7 @@ property_get_net_wm_icon(client_t *c)
 void
 property_update_net_wm_icon(client_t *c, xcb_get_property_cookie_t cookie)
 {
-    cairo_surface_t *surface = ewmh_window_icon_get_reply(cookie);
+    cairo_surface_t *surface = ewmh_window_icon_get_reply(cookie, globalconf.preferred_icon_size);
 
     if(!surface)
         return;
@@ -393,6 +382,7 @@ property_handle_xrootpmap_id(uint8_t state,
                              xcb_window_t window)
 {
     lua_State *L = globalconf_get_lua_State();
+    root_update_wallpaper();
     signal_object_emit(L, &global_signals, "wallpaper_changed", 0);
     return 0;
 }
@@ -540,15 +530,8 @@ luaA_register_xproperty(lua_State *L)
     }
     else
     {
-        buffer_t buf;
-        buffer_inita(&buf, a_strlen(name) + a_strlen("xproperty::") + 1);
-        buffer_addf(&buf, "xproperty::%s", name);
-
         property.name = a_strdup(name);
         xproperty_array_insert(&globalconf.xproperties, property);
-        signal_add(&window_class.signals, buf.s);
-        signal_add(&global_signals, buf.s);
-        buffer_wipe(&buf);
     }
 
     return 0;

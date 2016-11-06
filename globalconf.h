@@ -30,6 +30,8 @@
 #include <xcb/xcb_icccm.h>
 #include <xcb/xcb_keysyms.h>
 #include <xcb/xcb_cursor.h>
+#include <xcb/xcb_xrm.h>
+#include <X11/Xresource.h>
 
 #include "objects/key.h"
 #include "common/xembed.h"
@@ -54,6 +56,11 @@ typedef struct button_t button_t;
 typedef struct client_t client_t;
 typedef struct tag tag_t;
 typedef struct xproperty xproperty_t;
+struct sequence_pair {
+    xcb_void_cookie_t begin;
+    xcb_void_cookie_t end;
+};
+typedef struct sequence_pair sequence_pair_t;
 
 ARRAY_TYPE(button_t *, button)
 ARRAY_TYPE(tag_t *, tag)
@@ -61,12 +68,16 @@ ARRAY_TYPE(screen_t *, screen)
 ARRAY_TYPE(client_t *, client)
 ARRAY_TYPE(drawin_t *, drawin)
 ARRAY_TYPE(xproperty_t, xproperty)
+DO_ARRAY(sequence_pair_t, sequence_pair, DO_NOTHING)
+DO_ARRAY(xcb_window_t, window, DO_NOTHING)
 
 /** Main configuration structure */
 typedef struct
 {
     /** Connection ref */
     xcb_connection_t *connection;
+    /** X Resources DB */
+    xcb_xrm_database_t *xrmdb;
     /** Default screen number */
     int default_screen;
     /** xcb-cursor context */
@@ -75,16 +86,29 @@ typedef struct
     xcb_key_symbols_t *keysyms;
     /** Logical screens */
     screen_array_t screens;
+    /** The primary screen, access through screen_get_primary() */
+    screen_t *primary_screen;
     /** Root window key bindings */
     key_array_t keys;
     /** Root window mouse bindings */
     button_array_t buttons;
-    /** Modifiers masks */
-    uint16_t numlockmask, shiftlockmask, capslockmask, modeswitchmask;
+    /** Atom for WM_Sn */
+    xcb_atom_t selection_atom;
+    /** Window owning the WM_Sn selection */
+    xcb_window_t selection_owner_window;
+    /** Do we have RandR 1.3 or newer? */
+    bool have_randr_13;
+    /** Do we have RandR 1.5 or newer? */
+    bool have_randr_15;
+    /** Do we have a RandR screen update pending? */
+    bool screen_need_refresh;
     /** Check for XTest extension */
     bool have_xtest;
     /** Check for SHAPE extension */
     bool have_shape;
+    uint8_t event_base_shape;
+    uint8_t event_base_xkb;
+    uint8_t event_base_randr;
     /** Clients list */
     client_array_t clients;
     /** Embedded windows */
@@ -103,6 +127,8 @@ typedef struct
     int keygrabber;
     /** The mouse pointer grabber function */
     int mousegrabber;
+    /** The drawable that currently contains the pointer */
+    drawable_t *drawable_under_mouse;
     /** Input focus information */
     struct
     {
@@ -110,6 +136,8 @@ typedef struct
         client_t *client;
         /** Is there a focus change pending? */
         bool need_update;
+        /** When nothing has the input focus, this window actually is focused */
+        xcb_window_t window_no_focus;
     } focus;
     /** Drawins */
     drawin_array_t drawins;
@@ -127,6 +155,8 @@ typedef struct
         bool registered;
         /** Systray window parent */
         drawin_t *parent;
+        /** Background color */
+        uint32_t background_pixel;
     } systray;
     /** The monitor of startup notifications */
     SnMonitorContext *snmonitor;
@@ -148,6 +178,23 @@ typedef struct
     tag_array_t tags;
     /** List of registered xproperties */
     xproperty_array_t xproperties;
+    /* xkb context */
+    struct xkb_context *xkb_ctx;
+    /* xkb state of dead keys on keyboard */
+    struct xkb_state *xkb_state;
+    /** The preferred size of client icons for this screen */
+    uint32_t preferred_icon_size;
+    /** Cached wallpaper information */
+    cairo_surface_t *wallpaper;
+    /** List of enter/leave events to ignore */
+    sequence_pair_array_t ignore_enter_leave_events;
+    xcb_void_cookie_t pending_enter_leave_begin;
+    /** List of windows to be destroyed later */
+    window_array_t destroy_later_windows;
+    /** Pending event that still needs to be handled */
+    xcb_generic_event_t *pending_event;
+    /** The exit code that main() will return with */
+    int exit_code;
 } awesome_t;
 
 extern awesome_t globalconf;
@@ -158,6 +205,9 @@ extern awesome_t globalconf;
 static inline lua_State *globalconf_get_lua_State(void) {
     return globalconf.L.real_L_dont_use_directly;
 }
+
+/* Defined in root.c */
+void root_update_wallpaper(void);
 
 #endif
 // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80

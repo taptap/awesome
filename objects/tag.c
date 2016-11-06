@@ -19,28 +19,90 @@
  *
  */
 
+/** awesome tag API
+ *
+ * Furthermore to the classes described here, one can also use signals as
+ * described in @{signals}.
+ *
+ * ![Client geometry](../images/tag_props.svg)
+ *
+ * Some signal names are starting with a dot. These dots are artefacts from
+ * the documentation generation, you get the real signal name by
+ * removing the starting dot.
+ *
+ * @author Julien Danjou &lt;julien@danjou.info&gt;
+ * @copyright 2008-2009 Julien Danjou
+ * @classmod tag
+ */
+
 #include "tag.h"
 #include "banning.h"
 #include "client.h"
 #include "ewmh.h"
 #include "luaa.h"
 
-/** Tag type */
-struct tag
-{
-    LUA_OBJECT_HEADER
-    /** Tag name */
-    char *name;
-    /** true if activated */
-    bool activated;
-    /** true if selected */
-    bool selected;
-    /** clients in this tag */
-    client_array_t clients;
-};
+/**
+ * @signal request::select
+ */
 
-static lua_class_t tag_class;
-LUA_OBJECT_FUNCS(tag_class, tag_t, tag)
+/** When a client gets tagged with this tag.
+ * @signal tagged
+ * @client c The tagged client.
+ */
+
+/** When a client gets untagged with this tag.
+ * @signal untagged
+ * @client c The untagged client.
+ */
+
+/**
+ * Tag name.
+ *
+ * **Signal:**
+ *
+ *  * *property::name*
+ *
+ * @property name
+ * @param string
+ */
+
+/**
+ * True if the tag is selected to be viewed
+ *
+ * **Signal:**
+ *
+ *  * *property::selected*
+ *
+ * @property selected
+ * @param boolean
+ */
+
+/**
+ * True if the tag is active and can be used.
+ *
+ * **Signal:**
+ *
+ *  * *property::activated*
+ *
+ * @property activated
+ * @param boolean
+ */
+
+/** Get the number of instances.
+ *
+ * @return The number of tag objects alive.
+ * @function instances
+ */
+
+/* Set a __index metamethod for all tag instances.
+ * @tparam function cb The meta-method
+ * @function set_index_miss_handler
+ */
+
+/* Set a __newindex metamethod for all tag instances.
+ * @tparam function cb The meta-method
+ * @function set_newindex_miss_handler
+ */
 
 
 void
@@ -73,7 +135,6 @@ tag_view(lua_State *L, int udx, bool view)
     {
         tag->selected = view;
         banning_need_update();
-        ewmh_update_net_current_desktop();
 
         luaA_object_emit_signal(L, udx, "property::selected", 0);
     }
@@ -154,15 +215,29 @@ is_client_tagged(client_t *c, tag_t *t)
     return false;
 }
 
-/** Get the index of the first selected tag.
- * \return Its index.
+/** Get the index of the tag with focused client or first selected 
+ * \return Its index
  */
 int
-tags_get_first_selected_index(void)
+tags_get_current_or_first_selected_index(void)
 {
+    /* Consider "current desktop" a tag, that has focused window,
+     * basically a tag user actively interacts with.
+     * If no focused windows are present, fallback to first selected.
+     */
+    if(globalconf.focus.client)
+    {
+        foreach(tag, globalconf.tags)
+        {
+            if((*tag)->selected && is_client_tagged(globalconf.focus.client, *tag))
+                return tag_array_indexof(&globalconf.tags, tag);
+        }
+    }
     foreach(tag, globalconf.tags)
+    {
         if((*tag)->selected)
             return tag_array_indexof(&globalconf.tags, tag);
+    }
     return 0;
 }
 
@@ -179,11 +254,11 @@ luaA_tag_new(lua_State *L)
 }
 
 /** Get or set the clients attached to this tag.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lparam None or a table of clients to set.
- * \lreturn A table with the clients attached to this tags.
+ *
+ * @param clients_table None or a table of clients to set as being tagged with
+ *  this tag.
+ * @return A table with the clients attached to this tags.
+ * @function clients
  */
 static int
 luaA_tag_clients(lua_State *L)
@@ -349,13 +424,6 @@ tag_class_setup(lua_State *L)
                             (lua_class_propfunc_t) luaA_tag_set_activated,
                             (lua_class_propfunc_t) luaA_tag_get_activated,
                             (lua_class_propfunc_t) luaA_tag_set_activated);
-
-    signal_add(&tag_class.signals, "property::name");
-    signal_add(&tag_class.signals, "property::selected");
-    signal_add(&tag_class.signals, "property::activated");
-    signal_add(&tag_class.signals, "request::select");
-    signal_add(&tag_class.signals, "tagged");
-    signal_add(&tag_class.signals, "untagged");
 }
 
 // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80

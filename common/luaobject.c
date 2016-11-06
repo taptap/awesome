@@ -19,6 +19,14 @@
  *
  */
 
+/** Handling of signals.
+ *
+ * This can not be used as a standalone class, but is instead referenced
+ * explicitely in the classes, where it can be used. In the respective classes,
+ * it then can be used via `classname:connect_signal(...)` etc.
+ * @classmod signals
+ */
+
 #include "common/luaobject.h"
 #include "common/backtrace.h"
 
@@ -76,7 +84,7 @@ luaA_object_incref(lua_State *L, int tud, int oud)
     /* Get the number of references */
     lua_rawget(L, -2);
     /* Get the number of references and increment it */
-    int count = lua_tonumber(L, -1) + 1;
+    int count = lua_tointeger(L, -1) + 1;
     lua_pop(L, 1);
     /* Push the pointer (key) */
     lua_pushlightuserdata(L, pointer);
@@ -113,8 +121,8 @@ luaA_object_decref(lua_State *L, int tud, const void *pointer)
     /* Get the number of references */
     lua_rawget(L, -2);
     /* Get the number of references and decrement it */
-    int count = lua_tonumber(L, -1) - 1;
-    /* Did we find the item in our table? (tonumber(nil)-1) is -1 */
+    int count = lua_tointeger(L, -1) - 1;
+    /* Did we find the item in our table? (tointeger(nil)-1) is -1 */
     if (count < 0)
     {
         buffer_t buf;
@@ -160,6 +168,11 @@ luaA_settype(lua_State *L, lua_class_t *lua_class)
     return 1;
 }
 
+/** Add a signal.
+ * @tparam string name A signal name.
+ * @tparam func func A function to call when the signal is emitted.
+ * @function connect_signal
+ */
 void
 luaA_object_connect_signal(lua_State *L, int oud,
                            const char *name, lua_CFunction fn)
@@ -168,6 +181,11 @@ luaA_object_connect_signal(lua_State *L, int oud,
     luaA_object_connect_signal_from_stack(L, oud, name, -1);
 }
 
+/** Remove a signal.
+ * @tparam string name A signal name.
+ * @tparam func func A function to remove.
+ * @function disconnect_signal
+ */
 void
 luaA_object_disconnect_signal(lua_State *L, int oud,
                               const char *name, lua_CFunction fn)
@@ -204,8 +222,8 @@ luaA_object_disconnect_signal_from_stack(lua_State *L, int oud,
     luaA_checkfunction(L, ud);
     lua_object_t *obj = lua_touserdata(L, oud);
     void *ref = (void *) lua_topointer(L, ud);
-    signal_disconnect(&obj->signals, name, ref);
-    luaA_object_unref_item(L, oud, ref);
+    if (signal_disconnect(&obj->signals, name, ref))
+        luaA_object_unref_item(L, oud, ref);
     lua_remove(L, ud);
 }
 
@@ -218,7 +236,7 @@ signal_object_emit(lua_State *L, signal_array_t *arr, const char *name, int narg
     if(sigfound)
     {
         int nbfunc = sigfound->sigfuncs.len;
-        luaL_checkstack(L, lua_gettop(L) + nbfunc + nargs + 1, "too much signal");
+        luaL_checkstack(L, nbfunc + nargs + 1, "too much signal");
         /* Push all functions and then execute, because this list can change
          * while executing funcs. */
         foreach(func, sigfound->sigfuncs)
@@ -235,18 +253,16 @@ signal_object_emit(lua_State *L, signal_array_t *arr, const char *name, int narg
             lua_remove(L, - nargs - nbfunc - 1 + i);
             luaA_dofunction(L, nargs, 0);
         }
-    } else
-        warn("Trying to emit unknown signal '%s'", name);
+    }
 
     /* remove args */
     lua_pop(L, nargs);
 }
 
-/** Emit a signal to an object.
- * \param L The Lua VM state.
- * \param oud The object index on the stack.
- * \param name The name of the signal.
- * \param nargs The number of arguments to pass to the called functions.
+/** Emit a signal.
+ * @tparam string name A signal name.
+ * @param[opt] ... Various arguments.
+ * @function emit_signal
  */
 void
 luaA_object_emit_signal(lua_State *L, int oud,
@@ -256,11 +272,11 @@ luaA_object_emit_signal(lua_State *L, int oud,
     lua_class_t *lua_class = luaA_class_get(L, oud);
     lua_object_t *obj = luaA_toudata(L, oud, lua_class);
     if(!obj) {
-        warn("Trying to emit signal '%s' on non-object", name);
+        luaA_warn(L, "Trying to emit signal '%s' on non-object", name);
         return;
     }
     else if(lua_class->checker && !lua_class->checker(obj)) {
-        warn("Trying to emit signal '%s' on invalid object", name);
+        luaA_warn(L, "Trying to emit signal '%s' on invalid object", name);
         return;
     }
     signal_t *sigfound = signal_array_getbyid(&obj->signals,
@@ -268,7 +284,7 @@ luaA_object_emit_signal(lua_State *L, int oud,
     if(sigfound)
     {
         int nbfunc = sigfound->sigfuncs.len;
-        luaL_checkstack(L, lua_gettop(L) + nbfunc + nargs + 2, "too much signal");
+        luaL_checkstack(L, nbfunc + nargs + 2, "too much signal");
         /* Push all functions and then execute, because this list can change
          * while executing funcs. */
         foreach(func, sigfound->sigfuncs)
@@ -287,8 +303,7 @@ luaA_object_emit_signal(lua_State *L, int oud,
             lua_remove(L, - nargs - nbfunc - 2 + i);
             luaA_dofunction(L, nargs + 1, 0);
         }
-    } else
-        warn("Trying to emit unknown signal '%s'", name);
+    }
 
     /* Then emit signal on the class */
     lua_pushvalue(L, oud);

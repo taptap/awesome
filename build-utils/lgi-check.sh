@@ -24,9 +24,14 @@ die()
 # Check if we have lgi
 lua -e 'require("lgi")' || die
 
-# Check the version number
-# Keep this in sync with lib/gears/surface.lua.in!
-lua -e 'if tonumber(string.match(require("lgi.version"), "(%d%.%d)")) < 0.7 then error("lgi too old, need at least version 0.7.0") end' || die
+# Check the version number.
+# Keep this in sync with lib/gears/surface.lua.in and .travis.yml (LGIVER)!
+lua -e '_, _, major_minor, patch = string.find(require("lgi.version"), "^(%d%.%d)%.(%d)");
+	if tonumber(major_minor) < 0.7 or (tonumber(major_minor) == 0.7 and tonumber(patch) < 1) then
+		error(string.format("lgi is too old, need at least version %s, got %s.",
+		                    "0.7.1", require("lgi.version"))) end' || die
 
 # Check for the needed gi files
-lua -e 'l = require("lgi") assert(l.cairo, l.Pango, l.PangoCairo)' || die
+lua -e 'l = require("lgi") assert(l.cairo, l.Pango, l.PangoCairo, l.GLib, l.Gio)' || die
+
+# vim: filetype=sh:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80

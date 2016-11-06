@@ -26,6 +26,7 @@
 #include "common/backtrace.h"
 #include "common/version.h"
 #include "common/xutil.h"
+#include "xkb.h"
 #include "dbus.h"
 #include "event.h"
 #include "ewmh.h"
@@ -46,11 +47,15 @@
 
 #include <xcb/bigreq.h>
 #include <xcb/randr.h>
+#include <xcb/xcb_atom.h>
 #include <xcb/xcb_aux.h>
 #include <xcb/xcb_event.h>
 #include <xcb/xinerama.h>
 #include <xcb/xtest.h>
 #include <xcb/shape.h>
+
+#include <X11/Xlib-xcb.h>
+#include <X11/XKBlib.h>
 
 #include <glib-unix.h>
 
@@ -74,12 +79,22 @@ awesome_atexit(bool restart)
     lua_pushboolean(L, restart);
     signal_object_emit(L, &global_signals, "exit", 1);
 
-    /* Move clients where we want them to be */
-    foreach(c, globalconf.clients)
+    /* Move clients where we want them to be and keep the stacking order intact */
+    foreach(c, globalconf.stack)
     {
         xcb_reparent_window(globalconf.connection, (*c)->window, globalconf.screen->root,
                 (*c)->geometry.x, (*c)->geometry.y);
     }
+
+    /* Save the client order.  This is useful also for "hard" restarts. */
+    xcb_window_t *wins = p_alloca(xcb_window_t, globalconf.clients.len);
+    int n = 0;
+    foreach(client, globalconf.clients)
+        wins[n++] = (*client)->window;
+
+    xcb_change_property(globalconf.connection, XCB_PROP_MODE_REPLACE,
+                        globalconf.screen->root,
+                        AWESOME_CLIENT_ORDER, XCB_ATOM_WINDOW, 32, n, wins);
 
     a_dbus_cleanup();
 
@@ -98,9 +113,41 @@ awesome_atexit(bool restart)
             XCB_NONE, XCB_CURRENT_TIME);
     xcb_aux_sync(globalconf.connection);
 
+    xkb_free();
+
     /* Disconnect *after* closing lua */
     xcb_cursor_context_free(globalconf.cursor_ctx);
     xcb_disconnect(globalconf.connection);
+}
+
+/** Restore the client order after a restart */
+static void
+restore_client_order(xcb_get_property_cookie_t prop_cookie)
+{
+    int client_idx = 0;
+    xcb_window_t *windows;
+    xcb_get_property_reply_t *reply;
+
+    reply = xcb_get_property_reply(globalconf.connection, prop_cookie, NULL);
+    if (!reply || reply->format != 32 || reply->value_len == 0) {
+        p_delete(&reply);
+        return;
+    }
+
+    windows = xcb_get_property_value(reply);
+    for (uint32_t i = 0; i < reply->value_len; i++)
+        /* Find windows[i] and swap it to where it belongs */
+        foreach(c, globalconf.clients)
+            if ((*c)->window == windows[i])
+            {
+                client_t *tmp = *c;
+                *c = globalconf.clients.tab[client_idx];
+                globalconf.clients.tab[client_idx] = tmp;
+                client_idx++;
+            }
+
+    luaA_class_emit_signal(globalconf_get_lua_State(), &client_class, "list", 0);
+    p_delete(&reply);
 }
 
 /** Scan X to find windows to manage.
@@ -113,6 +160,7 @@ scan(xcb_query_tree_cookie_t tree_c)
     xcb_window_t *wins = NULL;
     xcb_get_window_attributes_reply_t *attr_r;
     xcb_get_geometry_reply_t *geom_r;
+    xcb_get_property_cookie_t prop_cookie;
     long state;
 
     tree_r = xcb_query_tree_reply(globalconf.connection,
@@ -121,6 +169,11 @@ scan(xcb_query_tree_cookie_t tree_c)
 
     if(!tree_r)
         return;
+
+    /* This gets the property and deletes it */
+    prop_cookie = xcb_get_property_unchecked(globalconf.connection, true,
+                          globalconf.screen->root, AWESOME_CLIENT_ORDER,
+                          XCB_ATOM_WINDOW, 0, UINT_MAX);
 
     /* Get the tree of the children windows of the current root window */
     if(!(wins = xcb_query_tree_children(tree_r)))
@@ -165,6 +218,92 @@ scan(xcb_query_tree_cookie_t tree_c)
     }
 
     p_delete(&tree_r);
+
+    restore_client_order(prop_cookie);
+}
+
+static void
+acquire_WM_Sn(bool replace)
+{
+    xcb_intern_atom_cookie_t atom_q;
+    xcb_intern_atom_reply_t *atom_r;
+    char *atom_name;
+    xcb_get_selection_owner_reply_t *get_sel_reply;
+    xcb_client_message_event_t ev;
+
+    /* Get the WM_Sn atom */
+    globalconf.selection_owner_window = xcb_generate_id(globalconf.connection);
+    xcb_create_window(globalconf.connection, globalconf.screen->root_depth,
+                      globalconf.selection_owner_window, globalconf.screen->root,
+                      -1, -1, 1, 1, 0,
+                      XCB_COPY_FROM_PARENT, globalconf.screen->root_visual,
+                      0, NULL);
+    xwindow_set_class_instance(globalconf.selection_owner_window);
+    xwindow_set_name_static(globalconf.selection_owner_window,
+            "Awesome WM_Sn selection owner window");
+
+    atom_name = xcb_atom_name_by_screen("WM_S", globalconf.default_screen);
+    if(!atom_name)
+        fatal("error getting WM_Sn atom name");
+
+    atom_q = xcb_intern_atom_unchecked(globalconf.connection, false,
+                                               a_strlen(atom_name), atom_name);
+
+    p_delete(&atom_name);
+
+    atom_r = xcb_intern_atom_reply(globalconf.connection, atom_q, NULL);
+    if(!atom_r)
+        fatal("error getting WM_Sn atom");
+
+    globalconf.selection_atom = atom_r->atom;
+    p_delete(&atom_r);
+
+    /* Is the selection already owned? */
+    get_sel_reply = xcb_get_selection_owner_reply(globalconf.connection,
+            xcb_get_selection_owner(globalconf.connection, globalconf.selection_atom),
+            NULL);
+    if (!replace && get_sel_reply->owner != XCB_NONE)
+        fatal("another window manager is already running (selection owned; use --replace)");
+
+    /* Acquire the selection */
+    xcb_set_selection_owner(globalconf.connection, globalconf.selection_owner_window,
+                            globalconf.selection_atom, XCB_CURRENT_TIME);
+    if (get_sel_reply->owner != XCB_NONE)
+    {
+        /* Wait for the old owner to go away */
+        xcb_get_geometry_reply_t *geom_reply = NULL;
+        do {
+            p_delete(&geom_reply);
+            geom_reply = xcb_get_geometry_reply(globalconf.connection,
+                    xcb_get_geometry(globalconf.connection, get_sel_reply->owner),
+                    NULL);
+        } while (geom_reply != NULL);
+    }
+    p_delete(&get_sel_reply);
+
+    /* Announce that we are the new owner */
+    p_clear(&ev, 1);
+    ev.response_type = XCB_CLIENT_MESSAGE;
+    ev.window = globalconf.screen->root;
+    ev.format = 32;
+    ev.type = MANAGER;
+    ev.data.data32[0] = XCB_CURRENT_TIME;
+    ev.data.data32[1] = globalconf.selection_atom;
+    ev.data.data32[2] = globalconf.selection_owner_window;
+    ev.data.data32[3] = ev.data.data32[4] = 0;
+
+    xcb_send_event(globalconf.connection, false, globalconf.screen->root, 0xFFFFFF, (char *) &ev);
+}
+
+static xcb_generic_event_t *poll_for_event(void)
+{
+    if (globalconf.pending_event) {
+        xcb_generic_event_t *event = globalconf.pending_event;
+        globalconf.pending_event = NULL;
+        return event;
+    }
+
+    return xcb_poll_for_event(globalconf.connection);
 }
 
 static void
@@ -172,7 +311,7 @@ a_xcb_check(void)
 {
     xcb_generic_event_t *mouse = NULL, *event;
 
-    while((event = xcb_poll_for_event(globalconf.connection)))
+    while((event = poll_for_event()))
     {
         /* We will treat mouse events later.
          * We cannot afford to treat all mouse motion events,
@@ -224,9 +363,23 @@ a_glib_poll(GPollFD *ufds, guint nfsd, gint timeout)
     guint res;
     struct timeval now, length_time;
     float length;
+    lua_State *L = globalconf_get_lua_State();
 
     /* Do all deferred work now */
     awesome_refresh();
+
+    /* Check if the Lua stack is the way it should be */
+    if (lua_gettop(L) != 0) {
+        warn("Something was left on the Lua stack, this is a bug!");
+        luaA_dumpstack(L);
+        lua_settop(L, 0);
+    }
+
+    /* Don't sleep if there is a pending event */
+    assert(globalconf.pending_event == NULL);
+    globalconf.pending_event = xcb_poll_for_event(globalconf.connection);
+    if (globalconf.pending_event != NULL)
+        timeout = 0;
 
     /* Check how long this main loop iteration took */
     gettimeofday(&now, NULL);
@@ -293,7 +446,10 @@ exit_help(int exit_code)
   -h, --help             show help\n\
   -v, --version          show version\n\
   -c, --config FILE      configuration file to use\n\
-  -k, --check            check configuration file syntax\n");
+      --search DIR       add a directory to the library search path\n\
+  -k, --check            check configuration file syntax\n\
+  -a, --no-argb          disable client transparency support\n\
+  -r, --replace          replace an existing window manager\n");
     exit(exit_code);
 }
 
@@ -306,11 +462,13 @@ int
 main(int argc, char **argv)
 {
     char *confpath = NULL;
+    string_array_t searchpath;
     int xfd, i, opt;
     ssize_t cmdlen = 1;
     xdgHandle xdg;
     bool no_argb = false;
     bool run_test = false;
+    bool replace_wm = false;
     xcb_query_tree_cookie_t tree_c;
     static struct option long_options[] =
     {
@@ -318,15 +476,23 @@ main(int argc, char **argv)
         { "version", 0, NULL, 'v' },
         { "config",  1, NULL, 'c' },
         { "check",   0, NULL, 'k' },
+        { "search",  1, NULL, 's' },
         { "no-argb", 0, NULL, 'a' },
+        { "replace", 0, NULL, 'r' },
         { NULL,      0, NULL, 0 }
     };
+
+    /* Make stdout/stderr line buffered. */
+    setvbuf(stdout, NULL, _IOLBF, 0);
+    setvbuf(stderr, NULL, _IOLBF, 0);
 
     /* clear the globalconf structure */
     p_clear(&globalconf, 1);
     globalconf.keygrabber = LUA_REFNIL;
     globalconf.mousegrabber = LUA_REFNIL;
+    globalconf.exit_code = EXIT_SUCCESS;
     buffer_init(&globalconf.startup_errors);
+    string_array_init(&searchpath);
 
     /* save argv */
     for(i = 0; i < argc; i++)
@@ -344,14 +510,8 @@ main(int argc, char **argv)
     /* Text won't be printed correctly otherwise */
     setlocale(LC_CTYPE, "");
 
-    /* Get XDG basedir data */
-    xdgInitHandle(&xdg);
-
-    /* init lua */
-    luaA_init(&xdg);
-
     /* check args */
-    while((opt = getopt_long(argc, argv, "vhkc:a",
+    while((opt = getopt_long(argc, argv, "vhkc:ar",
                              long_options, NULL)) != -1)
         switch(opt)
         {
@@ -365,15 +525,30 @@ main(int argc, char **argv)
             run_test = true;
             break;
           case 'c':
-            if(a_strlen(optarg))
-                confpath = a_strdup(optarg);
-            else
-                fatal("-c option requires a file name");
+            if (confpath != NULL)
+                fatal("--config may only be specified once");
+            confpath = a_strdup(optarg);
+            break;
+          case 's':
+            string_array_append(&searchpath, a_strdup(optarg));
             break;
           case 'a':
             no_argb = true;
             break;
+          case 'r':
+            replace_wm = true;
+            break;
+          default:
+            exit_help(EXIT_FAILURE);
+            break;
         }
+
+    /* Get XDG basedir data */
+    xdgInitHandle(&xdg);
+
+    /* init lua */
+    luaA_init(&xdg, &searchpath);
+    string_array_wipe(&searchpath);
 
     if (run_test)
     {
@@ -404,6 +579,12 @@ main(int argc, char **argv)
 
     /* We have no clue where the input focus is right now */
     globalconf.focus.need_update = true;
+
+    /* set the default preferred icon size */
+    globalconf.preferred_icon_size = 0;
+
+    /* XLib sucks */
+    XkbIgnoreExtension(True);
 
     /* X stuff */
     globalconf.connection = xcb_connect(NULL, &globalconf.default_screen);
@@ -436,9 +617,17 @@ main(int argc, char **argv)
 
     if (xcb_cursor_context_new(globalconf.connection, globalconf.screen, &globalconf.cursor_ctx) < 0)
         fatal("Failed to initialize xcb-cursor");
+    globalconf.xrmdb = xcb_xrm_database_from_default(globalconf.connection);
+    if (globalconf.xrmdb == NULL)
+        globalconf.xrmdb = xcb_xrm_database_from_string("");
+    if (globalconf.xrmdb == NULL)
+        fatal("Failed to initialize xcb-xrm");
 
     /* Did we get some usable data from the above X11 setup? */
     draw_test_cairo_xcb();
+
+    /* Acquire the WM_Sn selection */
+    acquire_WM_Sn(replace_wm);
 
     /* initialize dbus */
     a_dbus_init();
@@ -461,7 +650,7 @@ main(int argc, char **argv)
                                                       globalconf.screen->root,
                                                       XCB_CW_EVENT_MASK, &select_input_val);
         if (xcb_request_check(globalconf.connection, cookie))
-            fatal("another window manager is already running");
+            fatal("another window manager is already running (can't select SubstructureRedirect)");
     }
 
     /* Prefetch the maximum request length */
@@ -476,21 +665,16 @@ main(int argc, char **argv)
     query = xcb_get_extension_data(globalconf.connection, &xcb_shape_id);
     globalconf.have_shape = query->present;
 
+    event_init();
+
     /* Allocate the key symbols */
     globalconf.keysyms = xcb_key_symbols_alloc(globalconf.connection);
-    xcb_get_modifier_mapping_cookie_t xmapping_cookie =
-        xcb_get_modifier_mapping_unchecked(globalconf.connection);
 
     /* init atom cache */
     atoms_init(globalconf.connection);
 
     /* init screens information */
     screen_scan();
-
-    xutil_lock_mask_get(globalconf.connection, xmapping_cookie,
-                        globalconf.keysyms, &globalconf.numlockmask,
-                        &globalconf.shiftlockmask, &globalconf.capslockmask,
-                        &globalconf.modeswitchmask);
 
     /* do this only for real screen */
     ewmh_init();
@@ -499,24 +683,33 @@ main(int argc, char **argv)
     /* init spawn (sn) */
     spawn_init();
 
+    /* init xkb */
+    xkb_init();
+
     /* The default GC is just a newly created associated with a window with
-     * depth globalconf.default_depth */
-    xcb_window_t tmp_win = xcb_generate_id(globalconf.connection);
+     * depth globalconf.default_depth.
+     * The window_no_focus is used for "nothing has the input focus". */
+    globalconf.focus.window_no_focus = xcb_generate_id(globalconf.connection);
     globalconf.gc = xcb_generate_id(globalconf.connection);
     xcb_create_window(globalconf.connection, globalconf.default_depth,
-                      tmp_win, globalconf.screen->root,
+                      globalconf.focus.window_no_focus, globalconf.screen->root,
                       -1, -1, 1, 1, 0,
                       XCB_COPY_FROM_PARENT, globalconf.visual->visual_id,
-                      XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL | XCB_CW_COLORMAP,
+                      XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL |
+                      XCB_CW_OVERRIDE_REDIRECT | XCB_CW_COLORMAP,
                       (const uint32_t [])
                       {
                           globalconf.screen->black_pixel,
                           globalconf.screen->black_pixel,
+                          1,
                           globalconf.default_cmap
                       });
-    xcb_create_gc(globalconf.connection, globalconf.gc, tmp_win, XCB_GC_FOREGROUND | XCB_GC_BACKGROUND,
+    xwindow_set_class_instance(globalconf.focus.window_no_focus);
+    xwindow_set_name_static(globalconf.focus.window_no_focus, "Awesome no input window");
+    xcb_map_window(globalconf.connection, globalconf.focus.window_no_focus);
+    xcb_create_gc(globalconf.connection, globalconf.gc, globalconf.focus.window_no_focus,
+                  XCB_GC_FOREGROUND | XCB_GC_BACKGROUND,
                   (const uint32_t[]) { globalconf.screen->black_pixel, globalconf.screen->white_pixel });
-    xcb_destroy_window(globalconf.connection, tmp_win);
 
     /* Get the window tree associated to this screen */
     tree_c = xcb_query_tree_unchecked(globalconf.connection,
@@ -530,6 +723,9 @@ main(int argc, char **argv)
     /* we will receive events, stop grabbing server */
     xcb_ungrab_server(globalconf.connection);
     xcb_flush(globalconf.connection);
+
+    /* get the current wallpaper, from now on we are informed when it changes */
+    root_update_wallpaper();
 
     /* Parse and run configuration file */
     if (!luaA_parserc(&xdg, confpath, true))
@@ -548,15 +744,18 @@ main(int argc, char **argv)
     g_main_context_set_poll_func(g_main_context_default(), &a_glib_poll);
     gettimeofday(&last_wakeup, NULL);
 
-    /* main event loop */
-    globalconf.loop = g_main_loop_new(NULL, FALSE);
-    g_main_loop_run(globalconf.loop);
+    /* main event loop (if not NULL, awesome.quit() was already called) */
+    if (globalconf.loop == NULL)
+    {
+        globalconf.loop = g_main_loop_new(NULL, FALSE);
+        g_main_loop_run(globalconf.loop);
+    }
     g_main_loop_unref(globalconf.loop);
     globalconf.loop = NULL;
 
     awesome_atexit(false);
 
-    return EXIT_SUCCESS;
+    return globalconf.exit_code;
 }
 
 // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80

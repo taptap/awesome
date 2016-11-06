@@ -39,6 +39,13 @@
         signal_object_emit(L, &global_signals, "debug::deprecation", 1); \
     } while(0)
 
+static inline void free_string(char **c)
+{
+    p_delete(c);
+}
+
+DO_ARRAY(char*, string, free_string)
+
 /** Print a warning about some Lua code.
  * This is less mean than luaL_error() which setjmp via lua_error() and kills
  * everything. This only warn, it's up to you to then do what's should be done.
@@ -50,12 +57,17 @@ luaA_warn(lua_State *L, const char *fmt, ...)
 {
     va_list ap;
     luaL_where(L, 1);
-    fprintf(stderr, "%sW: ", lua_tostring(L, -1));
+    fprintf(stderr, "%s%sW: ", a_current_time_str(), lua_tostring(L, -1));
     lua_pop(L, 1);
     va_start(ap, fmt);
     vfprintf(stderr, fmt, ap);
     va_end(ap);
     fprintf(stderr, "\n");
+
+#if LUA_VERSION_NUM >= 502
+    luaL_traceback(L, L, NULL, 2);
+    fprintf(stderr, "%s\n", lua_tostring(L, -1));
+#endif
 }
 
 static inline int
@@ -63,6 +75,22 @@ luaA_typerror(lua_State *L, int narg, const char *tname)
 {
     const char *msg = lua_pushfstring(L, "%s expected, got %s",
                                       tname, luaL_typename(L, narg));
+#if LUA_VERSION_NUM >= 502
+    luaL_traceback(L, L, NULL, 2);
+    lua_concat(L, 2);
+#endif
+    return luaL_argerror(L, narg, msg);
+}
+
+static inline int
+luaA_rangerror(lua_State *L, int narg, double min, double max)
+{
+    const char *msg = lua_pushfstring(L, "value in [%f, %f] expected, got %f",
+                                      min, max, (double) lua_tonumber(L, narg));
+#if LUA_VERSION_NUM >= 502
+    luaL_traceback(L, L, NULL, 2);
+    lua_concat(L, 2);
+#endif
     return luaL_argerror(L, narg, msg);
 }
 
@@ -74,7 +102,7 @@ luaA_getuservalue(lua_State *L, int idx)
 #else
     lua_getfenv(L, idx);
 #endif
-} 
+}
 
 static inline void
 luaA_setuservalue(lua_State *L, int idx)
@@ -84,7 +112,7 @@ luaA_setuservalue(lua_State *L, int idx)
 #else
     lua_setfenv(L, idx);
 #endif
-} 
+}
 
 static inline size_t
 luaA_rawlen(lua_State *L, int idx)
@@ -132,6 +160,85 @@ luaA_getopt_number(lua_State *L, int idx, const char *name, lua_Number def)
     return def;
 }
 
+static inline lua_Number
+luaA_checknumber_range(lua_State *L, int n, lua_Number min, lua_Number max)
+{
+    lua_Number result = lua_tonumber(L, n);
+    if (result < min || result > max)
+        luaA_rangerror(L, n, min, max);
+    return result;
+}
+
+static inline lua_Number
+luaA_optnumber_range(lua_State *L, int narg, lua_Number def, lua_Number min, lua_Number max)
+{
+    if (lua_isnoneornil(L, narg))
+        return def;
+    return luaA_checknumber_range(L, narg, min, max);
+}
+
+static inline lua_Number
+luaA_getopt_number_range(lua_State *L, int idx, const char *name, lua_Number def, lua_Number min, lua_Number max)
+{
+    lua_getfield(L, idx, name);
+    if (lua_isnil(L, -1) || lua_isnumber(L, -1))
+        def = luaA_optnumber_range(L, -1, def, min, max);
+    lua_pop(L, 1);
+    return def;
+}
+
+static inline int
+luaA_checkinteger(lua_State *L, int n)
+{
+    lua_Number d = lua_tonumber(L, n);
+    if (d != (int)d)
+        luaA_typerror(L, n, "integer");
+    return d;
+}
+
+static inline lua_Integer
+luaA_optinteger (lua_State *L, int narg, lua_Integer def)
+{
+    return luaL_opt(L, luaA_checkinteger, narg, def);
+}
+
+static inline int
+luaA_getopt_integer(lua_State *L, int idx, const char *name, lua_Integer def)
+{
+    lua_getfield(L, idx, name);
+    if (lua_isnil(L, -1) || lua_isnumber(L, -1))
+        def = luaA_optinteger(L, -1, def);
+    lua_pop(L, 1);
+    return def;
+}
+
+static inline int
+luaA_checkinteger_range(lua_State *L, int n, lua_Number min, lua_Number max)
+{
+    int result = luaA_checkinteger(L, n);
+    if (result < min || result > max)
+        luaA_rangerror(L, n, min, max);
+    return result;
+}
+
+static inline lua_Integer
+luaA_optinteger_range(lua_State *L, int narg, lua_Integer def, lua_Number min, lua_Number max)
+{
+    if (lua_isnoneornil(L, narg))
+        return def;
+    return luaA_checkinteger_range(L, narg, min, max);
+}
+
+static inline int
+luaA_getopt_integer_range(lua_State *L, int idx, const char *name, lua_Integer def, lua_Number min, lua_Number max)
+{
+    lua_getfield(L, idx, name);
+    if (lua_isnil(L, -1) || lua_isnumber(L, -1))
+        def = luaA_optinteger_range(L, -1, def, min, max);
+    lua_pop(L, 1);
+    return def;
+}
+
 /** Push a area type to a table on stack.
  * \param L The Lua VM state.
  * \param geometry The area geometry to push.
@@ -141,13 +248,13 @@ static inline int
 luaA_pusharea(lua_State *L, area_t geometry)
 {
     lua_createtable(L, 0, 4);
-    lua_pushnumber(L, geometry.x);
+    lua_pushinteger(L, geometry.x);
     lua_setfield(L, -2, "x");
-    lua_pushnumber(L, geometry.y);
+    lua_pushinteger(L, geometry.y);
     lua_setfield(L, -2, "y");
-    lua_pushnumber(L, geometry.width);
+    lua_pushinteger(L, geometry.width);
     lua_setfield(L, -2, "width");
-    lua_pushnumber(L, geometry.height);
+    lua_pushinteger(L, geometry.height);
     lua_setfield(L, -2, "height");
     return 1;
 }
@@ -196,7 +303,7 @@ luaA_registerfct(lua_State *L, int idx, int *fct)
     return luaA_register(L, idx, fct);
 }
 
-void luaA_init(xdgHandle *);
+void luaA_init(xdgHandle *, string_array_t *);
 bool luaA_parserc(xdgHandle *, const char *, bool);
 
 /** Global signals */

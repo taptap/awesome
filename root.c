@@ -19,12 +19,21 @@
  *
  */
 
+/** awesome root window API
+ * @author Julien Danjou &lt;julien@danjou.info&gt;
+ * @copyright 2008-2009 Julien Danjou
+ * @module root
+ */
+
 #include "globalconf.h"
 
 #include "common/atoms.h"
 #include "common/xcursor.h"
+#include "common/xutil.h"
 #include "objects/button.h"
 #include "xwindow.h"
+
+#include "math.h"
 
 #include <xcb/xtest.h>
 #include <xcb/xcb_aux.h>
@@ -67,6 +76,7 @@ root_set_wallpaper_pixmap(xcb_connection_t *c, xcb_pixmap_t p)
 static bool
 root_set_wallpaper(cairo_pattern_t *pattern)
 {
+    lua_State *L = globalconf_get_lua_State();
     xcb_connection_t *c = xcb_connect(NULL, NULL);
     xcb_pixmap_t p = xcb_generate_id(c);
     /* globalconf.connection should be connected to the same X11 server, so we
@@ -100,20 +110,87 @@ root_set_wallpaper(cairo_pattern_t *pattern)
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_paint(cr);
     cairo_destroy(cr);
-    cairo_surface_finish(surface);
-    cairo_surface_destroy(surface);
+    cairo_surface_flush(surface);
     xcb_aux_sync(globalconf.connection);
 
+    /* Change the wallpaper, without sending us a PropertyNotify event */
+    xcb_grab_server(globalconf.connection);
+    xcb_change_window_attributes(globalconf.connection,
+                                 globalconf.screen->root,
+                                 XCB_CW_EVENT_MASK,
+                                 (uint32_t[]) { 0 });
     root_set_wallpaper_pixmap(c, p);
+    xcb_change_window_attributes(globalconf.connection,
+                                 globalconf.screen->root,
+                                 XCB_CW_EVENT_MASK,
+                                 ROOT_WINDOW_EVENT_MASK);
+    xcb_ungrab_server(globalconf.connection);
 
     /* Make sure our pixmap is not destroyed when we disconnect. */
     xcb_set_close_down_mode(c, XCB_CLOSE_DOWN_RETAIN_PERMANENT);
+
+    /* Tell Lua that the wallpaper changed */
+    cairo_surface_destroy(globalconf.wallpaper);
+    globalconf.wallpaper = surface;
+    signal_object_emit(L, &global_signals, "wallpaper_changed", 0);
 
     result = true;
 disconnect:
     xcb_flush(c);
     xcb_disconnect(c);
     return result;
+}
+
+void
+root_update_wallpaper(void)
+{
+    xcb_get_property_cookie_t prop_c;
+    xcb_get_property_reply_t *prop_r;
+    xcb_get_geometry_cookie_t geom_c;
+    xcb_get_geometry_reply_t *geom_r;
+    xcb_pixmap_t *rootpix;
+
+    cairo_surface_destroy(globalconf.wallpaper);
+    globalconf.wallpaper = NULL;
+
+    prop_c = xcb_get_property_unchecked(globalconf.connection, false,
+            globalconf.screen->root, _XROOTPMAP_ID, XCB_ATOM_PIXMAP, 0, 1);
+    prop_r = xcb_get_property_reply(globalconf.connection, prop_c, NULL);
+
+    if (!prop_r || !prop_r->value_len)
+    {
+        p_delete(&prop_r);
+        return;
+    }
+
+    rootpix = xcb_get_property_value(prop_r);
+    if (!rootpix)
+    {
+        p_delete(&prop_r);
+        return;
+    }
+
+    geom_c = xcb_get_geometry_unchecked(globalconf.connection, *rootpix);
+    geom_r = xcb_get_geometry_reply(globalconf.connection, geom_c, NULL);
+    if (!geom_r)
+    {
+        p_delete(&prop_r);
+        return;
+    }
+
+    /* Only the default visual makes sense, so just the default depth */
+    if (geom_r->depth != draw_visual_depth(globalconf.screen, globalconf.default_visual->visual_id))
+        warn("Got a pixmap with depth %d, but the default depth is %d, continuing anyway",
+                geom_r->depth, draw_visual_depth(globalconf.screen, globalconf.default_visual->visual_id));
+
+    globalconf.wallpaper = cairo_xcb_surface_create(globalconf.connection,
+                                                    *rootpix,
+                                                    globalconf.default_visual,
+                                                    geom_r->width,
+                                                    geom_r->height);
+
+    p_delete(&prop_r);
+    p_delete(&geom_r);
 }
 
 static xcb_keycode_t
@@ -133,18 +210,17 @@ _string_to_key_code(const char *s)
     }
 }
 
-/** Send fake events. Usually the current focused client will get it.
- * \param L The Lua VM state.
- * \return The number of element pushed on stack.
- * \luastack
- * \lparam The event type: key_press, key_release, button_press, button_release
- * or motion_notify.
- * \lparam The detail: in case of a key event, this is the keycode to send, in
- * case of a button event this is the number of the button. In case of a motion
- * event, this is a boolean value which if true make the coordinates relatives.
- * \lparam In case of a motion event, this is the X coordinate.
- * \lparam In case of a motion event, this is the Y coordinate.
- * If not specified, the current one is used.
+/** Send fake events. Usually the currently focused client will get it.
+ *
+ * @param event_type The event type: key_press, key_release, button_press,
+ *  button_release or motion_notify.
+ * @param detail The detail: in case of a key event, this is the keycode
+ *  to send, in case of a button event this is the number of the button. In
+ *  case of a motion event, this is a boolean value which if true makes the
+ *  coordinates relatives.
+ * @param x In case of a motion event, this is the X coordinate.
+ * @param y In case of a motion event, this is the Y coordinate.
+ * @function fake_input
  */
 static int
 luaA_root_fake_input(lua_State *L)
@@ -165,7 +241,7 @@ luaA_root_fake_input(lua_State *L)
         if(lua_type(L, 2) == LUA_TSTRING) {
             detail = _string_to_key_code(lua_tostring(L, 2)); /* keysym */
         } else {
-            detail = luaL_checknumber(L, 2); /* keycode */
+            detail = luaL_checkinteger(L, 2); /* keycode */
         }
     }
     else if(A_STREQ(stype, "key_release"))
@@ -174,25 +250,25 @@ luaA_root_fake_input(lua_State *L)
         if(lua_type(L, 2) == LUA_TSTRING) {
             detail = _string_to_key_code(lua_tostring(L, 2)); /* keysym */
         } else {
-            detail = luaL_checknumber(L, 2); /* keycode */
+            detail = luaL_checkinteger(L, 2); /* keycode */
         }
     }
     else if(A_STREQ(stype, "button_press"))
     {
         type = XCB_BUTTON_PRESS;
-        detail = luaL_checknumber(L, 2); /* button number */
+        detail = luaL_checkinteger(L, 2); /* button number */
     }
     else if(A_STREQ(stype, "button_release"))
     {
         type = XCB_BUTTON_RELEASE;
-        detail = luaL_checknumber(L, 2); /* button number */
+        detail = luaL_checkinteger(L, 2); /* button number */
     }
     else if(A_STREQ(stype, "motion_notify"))
     {
         type = XCB_MOTION_NOTIFY;
         detail = luaA_checkboolean(L, 2); /* relative to the current position or not */
-        x = luaL_checknumber(L, 3);
-        y = luaL_checknumber(L, 4);
+        x = round(luaA_checknumber_range(L, 3, MIN_X11_COORDINATE, MAX_X11_COORDINATE));
+        y = round(luaA_checknumber_range(L, 4, MIN_X11_COORDINATE, MAX_X11_COORDINATE));
     }
     else
         return 0;
@@ -208,12 +284,11 @@ luaA_root_fake_input(lua_State *L)
 }
 
 /** Get or set global key bindings.
- * This binding will be available when you'll press keys on root window.
- * \param L The Lua VM state.
- * \return The number of element pushed on stack.
- * \luastack
- * \lparam An array of key bindings objects, or nothing.
- * \lreturn The array of key bindings objects of this client.
+ * These bindings will be available when you press keys on the root window.
+ *
+ * @tparam table|nil keys_array An array of key binding objects, or nothing.
+ * @return The array of key bindings objects of this client.
+ * @function keys
  */
 static int
 luaA_root_keys(lua_State *L)
@@ -233,7 +308,6 @@ luaA_root_keys(lua_State *L)
             key_array_append(&globalconf.keys, luaA_object_ref_class(L, -1, &key_class));
 
         xcb_screen_t *s = globalconf.screen;
-        xcb_ungrab_key(globalconf.connection, XCB_GRAB_ANY, s->root, XCB_BUTTON_MASK_ANY);
         xwindow_grabkeys(s->root, &globalconf.keys);
 
         return 1;
@@ -250,12 +324,11 @@ luaA_root_keys(lua_State *L)
 }
 
 /** Get or set global mouse bindings.
- * This binding will be available when you'll click on root window.
- * \param L The Lua VM state.
- * \return The number of element pushed on stack.
- * \luastack
- * \lparam An array of mouse button bindings objects, or nothing.
- * \lreturn The array of mouse button bindings objects.
+ * This binding will be available when you click on the root window.
+ *
+ * @param button_table An array of mouse button bindings objects, or nothing.
+ * @return The array of mouse button bindings objects.
+ * @function buttons
  */
 static int
 luaA_root_buttons(lua_State *L)
@@ -287,11 +360,14 @@ luaA_root_buttons(lua_State *L)
     return 1;
 }
 
-/** Set the root cursor.
- * \param L The Lua VM state.
- * \return The number of element pushed on stack.
- * \luastack
- * \lparam A X cursor name.
+/** Set the root cursor
+ *
+ * The possible values are:
+ *
+ *@DOC_cursor_c_COMMON@
+ *
+ * @param cursor_name A X cursor name.
+ * @function cursor
  */
 static int
 luaA_root_cursor(lua_State *L)
@@ -315,10 +391,9 @@ luaA_root_cursor(lua_State *L)
 }
 
 /** Get the drawins attached to a screen.
- * \param L The Lua VM state.
- * \return The number of element pushed on stack.
- * \luastack
- * \lreturn A table with all drawins.
+ *
+ * @return A table with all drawins.
+ * @function drawins
  */
 static int
 luaA_root_drawins(lua_State *L)
@@ -334,22 +409,15 @@ luaA_root_drawins(lua_State *L)
     return 1;
 }
 
-/** Get the screen's wallpaper
- * \param L The Lua VM state.
- * \return The number of element pushed on stack.
- * \luastack
- * \lreturn A cairo surface for the wallpaper.
+/** Get the wallpaper as a cairo surface or set it as a cairo pattern.
+ *
+ * @param pattern A cairo pattern as light userdata
+ * @return A cairo surface or nothing.
+ * @function wallpaper
  */
 static int
 luaA_root_wallpaper(lua_State *L)
 {
-    xcb_get_property_cookie_t prop_c;
-    xcb_get_property_reply_t *prop_r;
-    xcb_get_geometry_cookie_t geom_c;
-    xcb_get_geometry_reply_t *geom_r;
-    xcb_pixmap_t *rootpix;
-    cairo_surface_t *surface;
-
     if(lua_gettop(L) == 1)
     {
         cairo_pattern_t *pattern = (cairo_pattern_t *)lua_touserdata(L, -1);
@@ -358,51 +426,31 @@ luaA_root_wallpaper(lua_State *L)
         return 1;
     }
 
-    prop_c = xcb_get_property_unchecked(globalconf.connection, false,
-            globalconf.screen->root, _XROOTPMAP_ID, XCB_ATOM_PIXMAP, 0, 1);
-    prop_r = xcb_get_property_reply(globalconf.connection, prop_c, NULL);
-
-    if (!prop_r || !prop_r->value_len)
-    {
-        p_delete(&prop_r);
+    if(globalconf.wallpaper == NULL)
         return 0;
-    }
-
-    rootpix = xcb_get_property_value(prop_r);
-    if (!rootpix)
-    {
-        p_delete(&prop_r);
-        return 0;
-    }
-
-    geom_c = xcb_get_geometry_unchecked(globalconf.connection, *rootpix);
-    geom_r = xcb_get_geometry_reply(globalconf.connection, geom_c, NULL);
-    if (!geom_r)
-    {
-        p_delete(&prop_r);
-        return 0;
-    }
-
-    /* Only the default visual makes sense, so just the default depth */
-    if (geom_r->depth != draw_visual_depth(globalconf.screen, globalconf.default_visual->visual_id))
-        warn("Got a pixmap with depth %d, but the default depth is %d, continuing anyway",
-                geom_r->depth, draw_visual_depth(globalconf.screen, globalconf.default_visual->visual_id));
-
-    surface = cairo_xcb_surface_create(globalconf.connection, *rootpix, globalconf.default_visual,
-                                       geom_r->width, geom_r->height);
 
     /* lua has to make sure this surface gets destroyed */
-    lua_pushlightuserdata(L, surface);
-    p_delete(&prop_r);
-    p_delete(&geom_r);
+    lua_pushlightuserdata(L, cairo_surface_reference(globalconf.wallpaper));
     return 1;
 }
 
-/** Get the screen's wallpaper
- * \param L The Lua VM state.
- * \return The number of element pushed on stack.
- * \luastack
- * \lreturn A cairo surface for the wallpaper.
+/** Get the size of the root window.
+ *
+ * @return Width of the root window.
+ * @return height of the root window.
+ * @function size
+ */
+static int
+luaA_root_size(lua_State *L)
+{
+    lua_pushinteger(L, globalconf.screen->width_in_pixels);
+    lua_pushinteger(L, globalconf.screen->height_in_pixels);
+    return 2;
+}
+
+/** Get the attached tags.
+ * @return A table with all tags.
+ * @function tags
  */
 static int
 luaA_root_tags(lua_State *L)
@@ -425,6 +473,7 @@ const struct luaL_Reg awesome_root_lib[] =
     { "fake_input", luaA_root_fake_input },
     { "drawins", luaA_root_drawins },
     { "wallpaper", luaA_root_wallpaper },
+    { "size", luaA_root_size },
     { "tags", luaA_root_tags },
     { "__index", luaA_default_index },
     { "__newindex", luaA_default_newindex },

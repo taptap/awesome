@@ -19,11 +19,18 @@
  *
  */
 
+/** awesome keygrabber API
+ * @author Julien Danjou &lt;julien@danjou.info&gt;
+ * @copyright 2008-2009 Julien Danjou
+ * @module keygrabber
+ */
+
 #include <unistd.h>
+#include <xkbcommon/xkbcommon.h>
+#include <xkbcommon/xkbcommon-x11.h>
 
 #include "keygrabber.h"
 #include "globalconf.h"
-#include "keyresolv.h"
 
 /** Grab the keyboard.
  * \return True if keyboard was grabbed.
@@ -51,24 +58,43 @@ keygrabber_grab(void)
     return false;
 }
 
+/** Returns, whether the \0-terminated char in UTF8 is control char.
+ * Control characters are either characters without UTF8 representation like XF86MonBrightnessUp
+ * or backspace and the other characters in ASCII table before space
+ *
+ * \param buf input buffer
+ * \return True if the input buffer is control character.
+ */
+static bool
+is_control(char *buf)
+{
+    return (buf[0] >= 0 && buf[0] < 0x20) || buf[0] == 0x7f;
+}
+
 /** Handle keypress event.
  * \param L Lua stack to push the key pressed.
  * \param e Received XKeyEvent.
- * \return True if a key was successfully get, false otherwise.
+ * \return True if a key was successfully retrieved, false otherwise.
  */
 bool
 keygrabber_handlekpress(lua_State *L, xcb_key_press_event_t *e)
 {
-    /* transfer event (keycode + modifiers) to keysym */
-    xcb_keysym_t ksym = keyresolv_get_keysym(e->detail, e->state);
-
     /* convert keysym to string */
     char buf[MAX(MB_LEN_MAX, 32)];
-    if(!keyresolv_keysym_to_string(ksym, buf, countof(buf)))
-        return false;
+
+    /* snprintf-like return value could be used here, but that should not be
+     * necessary, as we have buffer big enough */
+    xkb_state_key_get_utf8(globalconf.xkb_state, e->detail, buf, countof(buf) );
+
+    if (is_control(buf))
+    {
+        /* Use text names for control characters, ignoring all modifiers. */
+        xcb_keysym_t keysym = xcb_key_symbols_get_keysym(globalconf.keysyms,
+                                                         e->detail, 0);
+        xkb_keysym_get_name(keysym, buf, countof(buf));
+    }
 
     luaA_pushmodifiers(L, e->state);
-
     lua_pushstring(L, buf);
 
     switch(e->response_type)
@@ -80,22 +106,34 @@ keygrabber_handlekpress(lua_State *L, xcb_key_press_event_t *e)
         lua_pushliteral(L, "release");
         break;
     }
-
     return true;
 }
 
-/** Grab keyboard and read pressed keys, calling callback function at each key
- * press, until keygrabber.stop is called.
- * The function is called with 3 arguments:
- * a table containing modifiers keys, a string with the key pressed and a
- * string with either "press" or "release" to indicate the event type.
+/** Grab keyboard input and read pressed keys, calling a callback function at
+ * each keypress, until `keygrabber.stop` is called.
+ * The callback function receives three arguments:
  *
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
+ * * a table containing modifiers keys
+ * * a string with the pressed key
+ * * a string with either "press" or "release" to indicate the event type.
  *
- * \luastack
+ * @param callback A callback function as described above.
+ * @function run
+ * @usage The following function can be bound to a key, and will be used to
+ *        resize a client using keyboard.
  *
- * \lparam A callback function as described above.
+ *     function resize(c)
+ *       keygrabber.run(function(mod, key, event)
+ *         if event == "release" then return end
+ *
+ *         if     key == 'Up'   then awful.client.moveresize(0, 0, 0, 5, c)
+ *         elseif key == 'Down' then awful.client.moveresize(0, 0, 0, -5, c)
+ *         elseif key == 'Right' then awful.client.moveresize(0, 0, 5, 0, c)
+ *         elseif key == 'Left'  then awful.client.moveresize(0, 0, -5, 0, c)
+ *         else   keygrabber.stop()
+ *         end
+ *       end)
+ *     end
  */
 static int
 luaA_keygrabber_run(lua_State *L)
@@ -115,8 +153,7 @@ luaA_keygrabber_run(lua_State *L)
 }
 
 /** Stop grabbing the keyboard.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
+ * @function stop
  */
 int
 luaA_keygrabber_stop(lua_State *L)
@@ -127,10 +164,8 @@ luaA_keygrabber_stop(lua_State *L)
 }
 
 /** Check if keygrabber is running.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lreturn A boolean value, true if keygrabber is running, false otherwise.
+ * @function isrunning
+ * @treturn bool A boolean value, true if keygrabber is running, false otherwise.
  */
 static int
 luaA_keygrabber_isrunning(lua_State *L)

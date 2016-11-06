@@ -28,6 +28,7 @@
 
 #include <lualib.h>
 #include <lauxlib.h>
+#include <xcb/randr.h> /* for XCB_RANDR_GET_MONITORS */
 
 /** \brief Print version message and quit program.
  * \param executable program name
@@ -35,34 +36,47 @@
 void
 eprint_version(void)
 {
-    printf("awesome " AWESOME_VERSION
-	   " (" AWESOME_RELEASE ")\n"
-	   " • Build:");
-#if defined(__DATE__) && defined(__TIME__)
-    printf(" " __DATE__ " " __TIME__);
-#endif
-    printf(" for %s", AWESOME_COMPILE_MACHINE);
-#if defined(__GNUC__)				\
-    && defined(__GNUC_MINOR__)			\
-    && defined(__GNUC_PATCHLEVEL__)
-    printf(" by gcc version %d.%d.%d",
-	   __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
-#endif
-    printf(" (%s@%s)\n", AWESOME_COMPILE_BY, AWESOME_COMPILE_HOSTNAME);
-
     lua_State *L = luaL_newstate();
-    luaopen_base(L);
+    luaL_openlibs(L);
     lua_getglobal(L, "_VERSION");
-    printf(" • Compiled against "  LUA_RELEASE
-           " (running with %s)\n", lua_tostring(L, -1));
+    lua_getglobal(L, "jit");
+
+    if (lua_istable(L, 2))
+        lua_getfield(L, 2, "version");
+    else
+        lua_pop(L, 1);
+
+    /* Either push version number or error message onto stack */
+    (void) luaL_dostring(L, "return require('lgi.version')");
+
+#ifdef WITH_DBUS
+    const char *has_dbus = "✔";
+#else
+    const char *has_dbus = "✘";
+#endif
+#ifdef XCB_RANDR_GET_MONITORS
+    const char *has_RandR15 = "✔";
+#else
+    const char *has_RandR15 = "✘";
+#endif
+#ifdef HAS_EXECINFO
+    const char *has_execinfo = "✔";
+#else
+    const char *has_execinfo = "✘";
+#endif
+
+    printf("awesome %s (%s)\n"
+           " • Compiled against %s (running with %s)\n"
+           " • D-Bus support: %s\n"
+           " • execinfo support: %s\n"
+           " • RandR 1.5 support: %s\n"
+           " • LGI version: %s\n",
+           AWESOME_VERSION, AWESOME_RELEASE,
+           LUA_RELEASE, lua_tostring(L, -2),
+           has_dbus, has_execinfo, has_RandR15,
+           lua_tostring(L, -1));
     lua_close(L);
 
-    printf(" • D-Bus support: ");
-#ifdef WITH_DBUS
-    printf("✔\n");
-#else
-    printf("✘\n");
-#endif
     exit(EXIT_SUCCESS);
 }
 

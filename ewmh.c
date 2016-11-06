@@ -23,6 +23,7 @@
 #include "objects/client.h"
 #include "objects/tag.h"
 #include "common/atoms.h"
+#include "xwindow.h"
 
 #include <sys/types.h>
 #include <unistd.h>
@@ -104,6 +105,23 @@ ewmh_update_net_client_list(lua_State *L)
     return 0;
 }
 
+static int
+ewmh_client_update_frame_extents(lua_State *L)
+{
+    client_t *c = luaA_checkudata(L, 1, &client_class);;
+    uint32_t extents[4];
+
+    extents[0] = c->border_width + c->titlebar[CLIENT_TITLEBAR_LEFT].size;
+    extents[1] = c->border_width + c->titlebar[CLIENT_TITLEBAR_RIGHT].size;
+    extents[2] = c->border_width + c->titlebar[CLIENT_TITLEBAR_TOP].size;
+    extents[3] = c->border_width + c->titlebar[CLIENT_TITLEBAR_BOTTOM].size;
+
+    xcb_change_property(globalconf.connection, XCB_PROP_MODE_REPLACE,
+            c->window, _NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 32, 4, extents);
+
+    return 0;
+}
+
 void
 ewmh_init(void)
 {
@@ -122,6 +140,7 @@ ewmh_init(void)
         _NET_DESKTOP_NAMES,
         _NET_ACTIVE_WINDOW,
         _NET_CLOSE_WINDOW,
+        _NET_FRAME_EXTENTS,
         _NET_WM_NAME,
         _NET_WM_STRUT_PARTIAL,
         _NET_WM_ICON_NAME,
@@ -180,6 +199,9 @@ ewmh_init(void)
     xcb_change_property(globalconf.connection, XCB_PROP_MODE_REPLACE,
                         father, _NET_WM_NAME, UTF8_STRING, 8, 7, "awesome");
 
+    /* Set an instance, just because we can */
+    xwindow_set_class_instance(father);
+
     /* set the window manager PID */
     i = getpid();
     xcb_change_property(globalconf.connection, XCB_PROP_MODE_REPLACE,
@@ -200,6 +222,18 @@ ewmh_init(void)
     luaA_class_connect_signal(L, &client_class, "property::below" , ewmh_client_update_hints);
     luaA_class_connect_signal(L, &client_class, "property::minimized" , ewmh_client_update_hints);
     luaA_class_connect_signal(L, &client_class, "property::urgent" , ewmh_client_update_hints);
+    luaA_class_connect_signal(L, &client_class, "property::titlebar_top" , ewmh_client_update_frame_extents);
+    luaA_class_connect_signal(L, &client_class, "property::titlebar_bottom" , ewmh_client_update_frame_extents);
+    luaA_class_connect_signal(L, &client_class, "property::titlebar_right" , ewmh_client_update_frame_extents);
+    luaA_class_connect_signal(L, &client_class, "property::titlebar_left" , ewmh_client_update_frame_extents);
+    luaA_class_connect_signal(L, &client_class, "property::border_width" , ewmh_client_update_frame_extents);
+    luaA_class_connect_signal(L, &client_class, "manage", ewmh_client_update_frame_extents);
+    /* NET_CURRENT_DESKTOP handling */
+    luaA_class_connect_signal(L, &client_class, "focus", ewmh_update_net_current_desktop);
+    luaA_class_connect_signal(L, &client_class, "unfocus", ewmh_update_net_current_desktop);
+    luaA_class_connect_signal(L, &client_class, "tagged", ewmh_update_net_current_desktop);
+    luaA_class_connect_signal(L, &client_class, "untagged", ewmh_update_net_current_desktop);
+    luaA_class_connect_signal(L, &tag_class, "property::selected", ewmh_update_net_current_desktop);
 }
 
 /** Set the client list in stacking order, bottom to top.
@@ -228,14 +262,15 @@ ewmh_update_net_numbers_of_desktop(void)
 			_NET_NUMBER_OF_DESKTOPS, XCB_ATOM_CARDINAL, 32, 1, &count);
 }
 
-void
-ewmh_update_net_current_desktop(void)
+int
+ewmh_update_net_current_desktop(lua_State *L)
 {
-    uint32_t idx = tags_get_first_selected_index();
+    uint32_t idx = tags_get_current_or_first_selected_index();
 
     xcb_change_property(globalconf.connection, XCB_PROP_MODE_REPLACE,
                         globalconf.screen->root,
                         _NET_CURRENT_DESKTOP, XCB_ATOM_CARDINAL, 32, 1, &idx);
+    return 0;
 }
 
 void
@@ -371,7 +406,7 @@ ewmh_process_desktop(client_t *c, uint32_t desktop)
     if(desktop == 0xffffffff)
     {
         luaA_object_push(L, c);
-        lua_pushnil(L);
+        lua_pushboolean(L, true);
         luaA_object_emit_signal(L, -2, "request::tag", 1);
         /* Pop the client, arguments are already popped */
         lua_pop(L, 1);
@@ -430,7 +465,14 @@ ewmh_process_client_message(xcb_client_message_event_t *ev)
             lua_State *L = globalconf_get_lua_State();
             luaA_object_push(L, c);
             lua_pushstring(L, "ewmh");
-            luaA_object_emit_signal(L, -2, "request::activate", 1);
+
+            /* Create table argument with raise=true. */
+            lua_newtable(L);
+            lua_pushstring(L, "raise");
+            lua_pushboolean(L, true);
+            lua_settable(L, -3);
+
+            luaA_object_emit_signal(L, -3, "request::activate", 2);
             lua_pop(L, 1);
         }
     }
@@ -539,6 +581,7 @@ ewmh_client_check_hints(client_t *c)
     reply = xcb_get_property_reply(globalconf.connection, c2, NULL);
     if(reply && (data = xcb_get_property_value(reply)))
     {
+        c->has_NET_WM_WINDOW_TYPE = true;
         state = (xcb_atom_t *) data;
         for(int i = 0; i < xcb_get_property_value_length(reply) / ssizeof(xcb_atom_t); i++)
             if(state[i] == _NET_WM_WINDOW_TYPE_DESKTOP)
@@ -555,7 +598,8 @@ ewmh_client_check_hints(client_t *c)
                 c->type = MAX(c->type, WINDOW_TYPE_TOOLBAR);
             else if(state[i] == _NET_WM_WINDOW_TYPE_UTILITY)
                 c->type = MAX(c->type, WINDOW_TYPE_UTILITY);
-    }
+    } else
+        c->has_NET_WM_WINDOW_TYPE = false;
 
     p_delete(&reply);
 }
@@ -627,27 +671,50 @@ ewmh_window_icon_get_unchecked(xcb_window_t w)
 }
 
 static cairo_surface_t *
-ewmh_window_icon_from_reply(xcb_get_property_reply_t *r)
+ewmh_window_icon_from_reply(xcb_get_property_reply_t *r, uint32_t preferred_size)
 {
-    uint32_t *data;
-    uint64_t len;
+    uint32_t *data, *end, *found_data = 0;
+    uint32_t found_size = 0;
 
     if(!r || r->type != XCB_ATOM_CARDINAL || r->format != 32 || r->length < 2)
         return 0;
 
     data = (uint32_t *) xcb_get_property_value(r);
-    if (!data)
-        return 0;
+    if (!data) return 0;
 
-    /* Check that the property is as long as it should be, handling integer
-     * overflow. <uint32_t> times <another uint32_t casted to uint64_t> always
-     * fits into an uint64_t and thus this multiplication cannot overflow.
+    end = data + r->length;
+
+    /* Goes over the icon data and picks the icon that best matches the size preference.
+     * In case the size match is not exact, picks the closest bigger size if present,
+     * closest smaller size otherwise.
      */
-    len = data[0] * (uint64_t) data[1];
-    if (!data[0] || !data[1] || len > r->length - 2)
-        return 0;
+    while (data + 1 < end) {
+        /* check whether the data size specified by width and height fits into the array we got */
+        uint64_t data_size = (uint64_t) data[0] * data[1];
+        if (data_size > (uint64_t) (end - data - 2)) break;
 
-    return draw_surface_from_data(data[0], data[1], data + 2);
+        /* use the greater of the two dimensions to match against the preferred size */
+        uint32_t size = MAX(data[0], data[1]);
+
+        /* pick the icon if it's a better match than the one we already have */
+        bool found_icon_too_small = found_size < preferred_size;
+        bool found_icon_too_large = found_size > preferred_size;
+        bool icon_empty = data[0] == 0 || data[1] == 0;
+        bool better_because_bigger =  found_icon_too_small && size > found_size;
+        bool better_because_smaller = found_icon_too_large &&
+            size >= preferred_size && size < found_size;
+        if (!icon_empty && (better_because_bigger || better_because_smaller || found_size == 0))
+        {
+            found_data = data;
+            found_size = size;
+        }
+
+        data += data_size + 2;
+    }
+
+    if (!found_data) return 0;
+
+    return draw_surface_from_data(found_data[0], found_data[1], found_data + 2);
 }
 
 /** Get NET_WM_ICON.
@@ -655,10 +722,10 @@ ewmh_window_icon_from_reply(xcb_get_property_reply_t *r)
  * \return The number of elements on stack.
  */
 cairo_surface_t *
-ewmh_window_icon_get_reply(xcb_get_property_cookie_t cookie)
+ewmh_window_icon_get_reply(xcb_get_property_cookie_t cookie, uint32_t preferred_size)
 {
     xcb_get_property_reply_t *r = xcb_get_property_reply(globalconf.connection, cookie, NULL);
-    cairo_surface_t *surface = ewmh_window_icon_from_reply(r);
+    cairo_surface_t *surface = ewmh_window_icon_from_reply(r, preferred_size);
     p_delete(&r);
     return surface;
 }

@@ -51,6 +51,8 @@ typedef enum {
 struct client_t
 {
     WINDOW_OBJECT_HEADER
+    /** Window we use for input focus and no-input clients */
+    xcb_window_t nofocus_window;
     /** Client logical screen */
     screen_t *screen;
     /** Client name */
@@ -59,6 +61,9 @@ struct client_t
     char *class, *instance;
     /** Window geometry */
     area_t geometry;
+    /** Old window geometry currently configured in X11 */
+    area_t x11_client_geometry;
+    area_t x11_frame_geometry;
     /** Startup ID */
     char *startup_id;
     /** True if the client is sticky */
@@ -91,6 +96,12 @@ struct client_t
     bool skip_taskbar;
     /** True if the client cannot have focus */
     bool nofocus;
+    /** True if the client is focusable.  Overrides nofocus, and can be set
+     * from Lua. */
+    bool focusable;
+    bool focusable_set;
+    /** True if the client window has a _NET_WM_WINDOW_TYPE proeprty */
+    bool has_NET_WM_WINDOW_TYPE;
     /** Window of the group leader */
     xcb_window_t group_window;
     /** Window holding command needed to start it (session management related) */
@@ -117,6 +128,8 @@ struct client_t
     uint32_t pid;
     /** Window it is transient for */
     client_t *transient_for;
+    /** Value of WM_TRANSIENT_FOR */
+    xcb_window_t transient_for_window;
     /** Titelbar information */
     struct {
         /** The size of this bar. */
@@ -133,8 +146,9 @@ lua_class_t client_class;
 
 LUA_OBJECT_FUNCS(client_class, client_t, client)
 
-bool client_maybevisible(client_t *);
+bool client_on_selected_tags(client_t *);
 client_t * client_getbywin(xcb_window_t);
+client_t * client_getbynofocuswin(xcb_window_t);
 client_t * client_getbyframewin(xcb_window_t);
 
 void client_ban(client_t *);
@@ -177,6 +191,7 @@ void client_restore_enterleave_events(void);
 void client_refresh_partial(client_t *, int16_t, int16_t, uint16_t, uint16_t);
 void client_class_setup(lua_State *);
 void client_send_configure(client_t *);
+void client_find_transient_for(client_t *);
 drawable_t *client_get_drawable(client_t *, int, int);
 drawable_t *client_get_drawable_offset(client_t *, int *, int *);
 
@@ -204,6 +219,12 @@ client_raise(client_t *c)
 
     /* Push c on top of the stack. */
     stack_client_append(c);
+
+    /* Notify the listeners */
+    lua_State *L = globalconf_get_lua_State();
+    luaA_object_push(L, c);
+    luaA_object_emit_signal(L, -1, "raised", 0);
+    lua_pop(L, 1);
 }
 
 /** Check if a client has fixed size.
@@ -231,7 +252,7 @@ client_isfixed(client_t *c)
 static inline bool
 client_isvisible(client_t *c)
 {
-    return (!c->hidden && !c->minimized && client_maybevisible(c));
+    return (!c->hidden && !c->minimized && client_on_selected_tags(c));
 }
 
 #endif

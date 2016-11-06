@@ -163,6 +163,32 @@ luaA_class_add_property(lua_class_t *lua_class,
                                     });
 }
 
+/** Newindex meta function for objects after they were GC'd.
+ * \param L The Lua VM state.
+ * \return The number of elements pushed on stack.
+ */
+static int
+luaA_class_newindex_invalid(lua_State *L)
+{
+    return luaL_error(L, "attempt to index an object that was already garbage collected");
+}
+
+/** Index meta function for objects after they were GC'd.
+ * \param L The Lua VM state.
+ * \return The number of elements pushed on stack.
+ */
+static int
+luaA_class_index_invalid(lua_State *L)
+{
+    const char *attr = luaL_checkstring(L, 2);
+    if (A_STREQ(attr, "valid"))
+    {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+    return luaA_class_newindex_invalid(L);
+}
+
 /** Garbage collect a Lua object.
  * \param L The Lua VM state.
  * \return The number of elements pushed on stack.
@@ -179,6 +205,16 @@ luaA_class_gc(lua_State *L)
     for(; class; class = class->parent)
         if(class->collector)
             class->collector(item);
+    /* Unset its metatable so that e.g. luaA_toudata() will no longer accept
+     * this object. This is needed since other __gc methods can still use this.
+     * We also make sure that `item.valid == false`.
+     */
+    lua_newtable(L);
+    lua_pushcfunction(L, luaA_class_index_invalid);
+    lua_setfield(L, -2, "__index");
+    lua_pushcfunction(L, luaA_class_newindex_invalid);
+    lua_setfield(L, -2, "__newindex");
+    lua_setmetatable(L, 1);
     return 0;
 }
 
@@ -246,11 +282,8 @@ luaA_class_setup(lua_State *L, lua_class_t *class,
     class->parent = parent;
     class->tostring = NULL;
     class->instances = 0;
-
-    signal_add(&class->signals, "new");
-
-    if (parent)
-        class->signals.inherits_from = &parent->signals;
+    class->index_miss_handler = LUA_REFNIL;
+    class->newindex_miss_handler = LUA_REFNIL;
 
     lua_class_array_append(&luaA_classes, class);
 }
@@ -276,8 +309,8 @@ luaA_class_disconnect_signal_from_stack(lua_State *L, lua_class_t *lua_class,
 {
     luaA_checkfunction(L, ud);
     void *ref = (void *) lua_topointer(L, ud);
-    signal_disconnect(&lua_class->signals, name, ref);
-    luaA_object_unref(L, (void *) ref);
+    if (signal_disconnect(&lua_class->signals, name, ref))
+        luaA_object_unref(L, (void *) ref);
     lua_remove(L, ud);
 }
 
@@ -356,6 +389,40 @@ luaA_class_property_get(lua_State *L, lua_class_t *lua_class, int fieldidx)
     return NULL;
 }
 
+/** Call a registered function.
+ * \param L The Lua VM state.
+ * \param handler The function to call.
+ * \return The number of elements pushed on stack.
+ */
+static
+int luaA_class_call_handler(lua_State *L, int handler)
+{
+    /* This is based on luaA_dofunction, but allows multiple return values */
+    assert(handler != LUA_REFNIL);
+
+    int nargs = lua_gettop(L);
+
+    /* Push error handling function and move it before args */
+    lua_pushcfunction(L, luaA_dofunction_error);
+    lua_insert(L, - nargs - 1);
+    int error_func_pos = 1;
+
+    /* push function and move it before args */
+    lua_rawgeti(L, LUA_REGISTRYINDEX, handler);
+    lua_insert(L, - nargs - 1);
+
+    if(lua_pcall(L, nargs, LUA_MULTRET, error_func_pos))
+    {
+        warn("%s", lua_tostring(L, -1));
+        /* Remove error function and error string */
+        lua_pop(L, 2);
+        return 0;
+    }
+    /* Remove error function */
+    lua_remove(L, error_func_pos);
+    return lua_gettop(L);
+}
+
 /** Generic index meta function for objects.
  * \param L The Lua VM state.
  * \return The number of elements pushed on stack.
@@ -384,6 +451,17 @@ luaA_class_index(lua_State *L)
 
     lua_class_property_t *prop = luaA_class_property_get(L, class, 2);
 
+    /* Is this the special 'data' property? This is available on all objects and
+     * thus not implemented as a lua_class_property_t.
+     */
+    if (A_STREQ(attr, "data"))
+    {
+        luaA_checkudata(L, 1, class);
+        luaA_getuservalue(L, 1);
+        lua_getfield(L, -1, "data");
+        return 1;
+    }
+
     /* Property does exist and has an index callback */
     if(prop)
     {
@@ -392,6 +470,8 @@ luaA_class_index(lua_State *L)
     }
     else
     {
+        if(class->index_miss_handler != LUA_REFNIL)
+            return luaA_class_call_handler(L, class->index_miss_handler);
         if(class->index_miss_property)
             return class->index_miss_property(L, luaA_checkudata(L, 1, class));
     }
@@ -422,6 +502,8 @@ luaA_class_newindex(lua_State *L)
     }
     else
     {
+        if(class->newindex_miss_handler != LUA_REFNIL)
+            return luaA_class_call_handler(L, class->newindex_miss_handler);
         if(class->newindex_miss_property)
             return class->newindex_miss_property(L, luaA_checkudata(L, 1, class));
     }

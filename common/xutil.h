@@ -28,6 +28,11 @@
 #include "common/atoms.h"
 #include "common/util.h"
 
+#define MAX_X11_COORDINATE INT16_MAX
+#define MIN_X11_COORDINATE INT16_MIN
+#define MAX_X11_SIZE UINT16_MAX
+#define MIN_X11_SIZE 1
+
 static inline char *
 xutil_get_text_property_from_reply(xcb_get_property_reply_t *reply)
 {
@@ -48,10 +53,6 @@ xutil_get_text_property_from_reply(xcb_get_property_reply_t *reply)
     }
     return NULL;
 }
-
-void xutil_lock_mask_get(xcb_connection_t *, xcb_get_modifier_mapping_cookie_t,
-                         xcb_key_symbols_t *,
-                         uint16_t *, uint16_t *, uint16_t *, uint16_t *);
 
 uint16_t xutil_key_mask_fromstr(const char *);
 void xutil_key_mask_tostr(uint16_t, const char **, size_t *);

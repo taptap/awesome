@@ -19,6 +19,13 @@
  *
  */
 
+/** awesome core API
+ *
+ * @author Julien Danjou &lt;julien@danjou.info&gt;
+ * @copyright 2008-2009 Julien Danjou
+ * @module awesome
+ */
+
 #define _GNU_SOURCE
 
 #include "luaa.h"
@@ -37,6 +44,8 @@
 #include "selection.h"
 #include "spawn.h"
 #include "systray.h"
+#include "xkb.h"
+#include "xrdb.h"
 
 #include <lua.h>
 #include <lauxlib.h>
@@ -46,6 +55,8 @@
 
 #include <xcb/xcb_atom.h>
 
+#include <unistd.h> /* for gethostname() */
+
 #ifdef WITH_DBUS
 extern const struct luaL_Reg awesome_dbus_lib[];
 #endif
@@ -54,6 +65,54 @@ extern const struct luaL_Reg awesome_mousegrabber_lib[];
 extern const struct luaL_Reg awesome_root_lib[];
 extern const struct luaL_Reg awesome_mouse_methods[];
 extern const struct luaL_Reg awesome_mouse_meta[];
+
+/** A call into the lua code aborted with an error
+ * @signal debug::error
+ */
+
+/** A deprecated lua function was called
+ * @signal debug::deprecation
+ */
+
+/** An invalid key was read from an object (e.g. c.foo)
+ * @signal debug::index::miss
+ */
+
+/** An invalid key was written to an object (e.g. c.foo = "bar")
+ * @signal debug::newindex::miss
+ */
+
+/**
+ * @signal systray::update
+ */
+
+/**
+ * @signal wallpaper_changed
+ */
+
+/**
+ * @signal xkb::map_changed
+ */
+
+/**
+ * @signal xkb::group_changed
+ */
+
+/**
+ * @signal refresh
+ */
+
+/**
+ * @signal startup
+ */
+
+/**
+ * @signal exit
+ */
+
+/**
+ * @signal screen::change
+ */
 
 /** Path to config file */
 static char *conffile;
@@ -96,22 +155,25 @@ composite_manager_running(void)
 }
 
 /** Quit awesome.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
+ * @tparam[opt=0] integer code The exit code to use when exiting.
+ * @function quit
  */
 static int
 luaA_quit(lua_State *L)
 {
+    if (!lua_isnoneornil(L, 1))
+        globalconf.exit_code = luaL_checkinteger(L, 1);
+    if (globalconf.loop == NULL)
+        globalconf.loop = g_main_loop_new(NULL, FALSE);
     g_main_loop_quit(globalconf.loop);
     return 0;
 }
 
 /** Execute another application, probably a window manager, to replace
  * awesome.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lparam The command line to execute.
+ *
+ * @param cmd The command line to execute.
+ * @function exec
  */
 static int
 luaA_exec(lua_State *L)
@@ -125,6 +187,7 @@ luaA_exec(lua_State *L)
 }
 
 /** Restart awesome.
+ * @function restart
  */
 static int
 luaA_restart(lua_State *L)
@@ -133,22 +196,63 @@ luaA_restart(lua_State *L)
     return 0;
 }
 
+/** Send a signal to a process identified by its process id. See
+ * `awesome.unix_signal` for a list of signals.
+ * @tparam integer pid Process identifier
+ * @tparam integer sig Signal number
+ * @treturn boolean true if the signal was successfully sent, else false
+ * @function kill
+ */
+static int
+luaA_kill(lua_State *L)
+{
+    int pid = luaA_checknumber_range(L, 1, 1, INT_MAX);
+    int sig = luaA_checknumber_range(L, 2, 0, INT_MAX);
+
+    int result = kill(pid, sig);
+    lua_pushboolean(L, result == 0);
+    return 1;
+}
+
 /** Load an image from a given path.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lparam The command line to execute.
+ *
+ * @param name The file name.
+ * @return[1] A cairo surface as light user datum.
+ * @return[2] nil
+ * @treturn[2] string Error message
+ * @function load_image
  */
 static int
 luaA_load_image(lua_State *L)
 {
+    GError *error = NULL;
     const char *filename = luaL_checkstring(L, 1);
-    cairo_surface_t *surface = draw_load_image(L, filename);
-    if (!surface)
-        return 0;
+    cairo_surface_t *surface = draw_load_image(L, filename, &error);
+    if (!surface) {
+        lua_pushnil(L);
+        lua_pushstring(L, error->message);
+        g_error_free(error);
+        return 2;
+    }
+
     /* lua has to make sure to free the ref or we have a leak */
     lua_pushlightuserdata(L, surface);
     return 1;
+}
+
+/** Set the preferred size for client icons.
+ *
+ * The closest equal or bigger size is picked if present, otherwise the closest
+ * smaller size is picked. The default is 0 pixels, ie. the smallest icon.
+ *
+ * @param size The size of the icons in pixels.
+ * @function set_preferred_icon_size
+ */
+static int
+luaA_set_preferred_icon_size(lua_State *L)
+{
+    globalconf.preferred_icon_size = luaA_checkinteger_range(L, 1, 0, UINT32_MAX);
+    return 0;
 }
 
 /** UTF-8 aware string length computing.
@@ -159,7 +263,7 @@ static int
 luaA_mbstrlen(lua_State *L)
 {
     const char *cmd = luaL_checkstring(L, 1);
-    lua_pushnumber(L, (ssize_t) mbstowcs(NULL, NONULL(cmd), 0));
+    lua_pushinteger(L, (ssize_t) mbstowcs(NULL, NONULL(cmd), 0));
     return 1;
 }
 
@@ -194,17 +298,48 @@ luaA_fixups(lua_State *L)
     lua_setglobal(L, "selection");
 }
 
-/** awesome global table.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lfield conffile The configuration file which has been loaded.
- * \lfield version The version of awesome.
- * \lfield release The release name of awesome.
- * \lfield startup True if we are still in startup, false otherwise.
- * \lfield startup_errors Error message for errors that occured during startup.
- * \lfield composite_manager_running True if a composite manager is running.
+
+/**
+ * The version of awesome.
+ * @tfield string version
  */
+
+/**
+ * The release name of awesome.
+ * @tfield string release
+ */
+
+/**
+ * The configuration file which has been loaded.
+ * @tfield string conffile
+ */
+
+/**
+ * True if we are still in startup, false otherwise.
+ * @tfield boolean startup
+ */
+
+/**
+ * Error message for errors that occured during
+ *  startup.
+ * @tfield string startup_errors
+ */
+
+/**
+ * True if a composite manager is running.
+ * @tfield boolean composite_manager_running
+ */
+
+/**
+ * Table mapping between signal numbers and signal identifiers.
+ * @tfield table unix_signal
+ */
+
+/**
+ * The hostname of the computer on which we are running.
+ * @tfield string hostname
+ */
+
 static int
 luaA_awesome_index(lua_State *L)
 {
@@ -251,15 +386,25 @@ luaA_awesome_index(lua_State *L)
         return 1;
     }
 
+    if(A_STREQ(buf, "hostname"))
+    {
+        /* No good way to handle failures... */
+        char hostname[256] = "";
+        gethostname(&hostname[0], countof(hostname));
+        hostname[countof(hostname) - 1] = '\0';
+
+        lua_pushstring(L, hostname);
+        return 1;
+    }
+
     return luaA_default_index(L);
 }
 
 /** Add a global signal.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lparam A string with the event name.
- * \lparam The function to call.
+ *
+ * @param name A string with the event name.
+ * @param func The function to call.
+ * @function connect_signal
  */
 static int
 luaA_awesome_connect_signal(lua_State *L)
@@ -271,11 +416,10 @@ luaA_awesome_connect_signal(lua_State *L)
 }
 
 /** Remove a global signal.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lparam A string with the event name.
- * \lparam The function to call.
+ *
+ * @param name A string with the event name.
+ * @param func The function to call.
+ * @function disconnect_signal
  */
 static int
 luaA_awesome_disconnect_signal(lua_State *L)
@@ -283,17 +427,16 @@ luaA_awesome_disconnect_signal(lua_State *L)
     const char *name = luaL_checkstring(L, 1);
     luaA_checkfunction(L, 2);
     const void *func = lua_topointer(L, 2);
-    signal_disconnect(&global_signals, name, func);
-    luaA_object_unref(L, (void *) func);
+    if (signal_disconnect(&global_signals, name, func))
+        luaA_object_unref(L, (void *) func);
     return 0;
 }
 
 /** Emit a global signal.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lparam A string with the event name.
- * \lparam The function to call.
+ *
+ * @param name A string with the event name.
+ * @param ... The signal arguments.
+ * @function emit_signal
  */
 static int
 luaA_awesome_emit_signal(lua_State *L)
@@ -315,15 +458,61 @@ luaA_panic(lua_State *L)
     return 0;
 }
 
+#if LUA_VERSION_NUM >= 502
+static const char *
+luaA_tolstring(lua_State *L, int idx, size_t *len)
+{
+    return luaL_tolstring(L, idx, len);
+}
+#else
+static const char *
+luaA_tolstring(lua_State *L, int idx, size_t *len)
+{
+    /* Try using the metatable. If that fails, push the value itself onto
+     * the stack.
+     */
+    if (!luaL_callmeta(L, idx, "__tostring"))
+        lua_pushvalue(L, idx);
+
+    switch (lua_type(L, -1)) {
+    case LUA_TSTRING:
+        lua_pushvalue(L, -1);
+        break;
+    case LUA_TBOOLEAN:
+        if (lua_toboolean(L, -1))
+            lua_pushliteral(L, "true");
+        else
+            lua_pushliteral(L, "false");
+        break;
+    case LUA_TNUMBER:
+        lua_pushfstring(L, "%f", lua_tonumber(L, -1));
+        break;
+    case LUA_TNIL:
+        lua_pushstring(L, "nil");
+        break;
+    default:
+        lua_pushfstring(L, "%s: %p",
+                lua_typename(L, lua_type(L, -1)),
+                lua_topointer(L, -1));
+        break;
+    }
+    lua_remove(L, -2);
+    return lua_tolstring(L, -1, len);
+}
+#endif
+
 static int
 luaA_dofunction_on_error(lua_State *L)
 {
+    /* Convert error to string, to prevent a follow-up error with lua_concat. */
+    luaA_tolstring(L, -1, NULL);
+
     /* duplicate string error */
     lua_pushvalue(L, -1);
     /* emit error signal */
     signal_object_emit(L, &global_signals, "debug::error", 1);
 
-    if(!luaL_dostring(L, "return debug.traceback(\"error while running function\", 3)"))
+    if(!luaL_dostring(L, "return debug.traceback(\"error while running function!\", 3)"))
     {
         /* Move traceback before error */
         lua_insert(L, -2);
@@ -336,11 +525,104 @@ luaA_dofunction_on_error(lua_State *L)
     return 1;
 }
 
+static void
+setup_awesome_signals(lua_State *L)
+{
+    lua_getglobal(L, "awesome");
+    lua_pushstring(L, "unix_signal");
+    lua_newtable(L);
+
+#define SETUP_SIGNAL(sig)                         \
+    do {                                          \
+        /* Set awesome.signals["SIGSTOP"] = 42 */ \
+        lua_pushinteger(L, sig);                  \
+        lua_setfield(L, -2, #sig);                \
+        /* Set awesome.signals[42] = "SIGSTOP" */ \
+        lua_pushinteger(L, sig);                  \
+        lua_pushstring(L, #sig);                  \
+        lua_settable(L, -3);                      \
+    } while (0)
+
+    /* Non-standard signals. These are first so that e.g. (on my system)
+     * signals[29] is SIGPOLL and not SIGIO (the value gets overwritten).
+     */
+#ifdef SIGIOT
+    SETUP_SIGNAL(SIGIOT);
+#endif
+#ifdef SIGEMT
+    SETUP_SIGNAL(SIGEMT);
+#endif
+#ifdef SIGSTKFLT
+    SETUP_SIGNAL(SIGSTKFLT);
+#endif
+#ifdef SIGIO
+    SETUP_SIGNAL(SIGIO);
+#endif
+#ifdef SIGCLD
+    SETUP_SIGNAL(SIGCLD);
+#endif
+#ifdef SIGPWR
+    SETUP_SIGNAL(SIGPWR);
+#endif
+#ifdef SIGINFO
+    SETUP_SIGNAL(SIGINFO);
+#endif
+#ifdef SIGLOST
+    SETUP_SIGNAL(SIGLOST);
+#endif
+#ifdef SIGWINCH
+    SETUP_SIGNAL(SIGWINCH);
+#endif
+#ifdef SIGUNUSED
+    SETUP_SIGNAL(SIGUNUSED);
+#endif
+
+    /* POSIX.1-1990, according to man 7 signal */
+    SETUP_SIGNAL(SIGHUP);
+    SETUP_SIGNAL(SIGINT);
+    SETUP_SIGNAL(SIGQUIT);
+    SETUP_SIGNAL(SIGILL);
+    SETUP_SIGNAL(SIGABRT);
+    SETUP_SIGNAL(SIGFPE);
+    SETUP_SIGNAL(SIGKILL);
+    SETUP_SIGNAL(SIGSEGV);
+    SETUP_SIGNAL(SIGPIPE);
+    SETUP_SIGNAL(SIGALRM);
+    SETUP_SIGNAL(SIGTERM);
+    SETUP_SIGNAL(SIGUSR1);
+    SETUP_SIGNAL(SIGUSR2);
+    SETUP_SIGNAL(SIGCHLD);
+    SETUP_SIGNAL(SIGCONT);
+    SETUP_SIGNAL(SIGSTOP);
+    SETUP_SIGNAL(SIGTSTP);
+    SETUP_SIGNAL(SIGTTIN);
+    SETUP_SIGNAL(SIGTTOU);
+
+    /* POSIX.1-2001, according to man 7 signal */
+    SETUP_SIGNAL(SIGBUS);
+    SETUP_SIGNAL(SIGPOLL);
+    SETUP_SIGNAL(SIGPROF);
+    SETUP_SIGNAL(SIGSYS);
+    SETUP_SIGNAL(SIGTRAP);
+    SETUP_SIGNAL(SIGURG);
+    SETUP_SIGNAL(SIGVTALRM);
+    SETUP_SIGNAL(SIGXCPU);
+    SETUP_SIGNAL(SIGXFSZ);
+
+#undef SETUP_SIGNAL
+
+    /* Set awesome.signal to the table we just created, key was already pushed */
+    lua_rawset(L, -3);
+
+    /* Pop "awesome" */
+    lua_pop(L, 1);
+}
+
 /** Initialize the Lua VM
  * \param xdg An xdg handle to use to get XDG basedir.
  */
 void
-luaA_init(xdgHandle* xdg)
+luaA_init(xdgHandle* xdg, string_array_t *searchpath)
 {
     lua_State *L;
     static const struct luaL_Reg awesome_lib[] =
@@ -354,11 +636,17 @@ luaA_init(xdgHandle* xdg)
         { "emit_signal", luaA_awesome_emit_signal },
         { "systray", luaA_systray },
         { "load_image", luaA_load_image },
+        { "set_preferred_icon_size", luaA_set_preferred_icon_size },
         { "register_xproperty", luaA_register_xproperty },
         { "set_xproperty", luaA_set_xproperty },
         { "get_xproperty", luaA_get_xproperty },
         { "__index", luaA_awesome_index },
         { "__newindex", luaA_default_newindex },
+        { "xkb_set_layout_group", luaA_xkb_set_layout_group},
+        { "xkb_get_layout_group", luaA_xkb_get_layout_group},
+        { "xkb_get_group_names", luaA_xkb_get_group_names},
+        { "xrdb_get_value", luaA_xrdb_get_value},
+        { "kill", luaA_kill},
         { NULL, NULL }
     };
 
@@ -378,6 +666,7 @@ luaA_init(xdgHandle* xdg)
 
     /* Export awesome lib */
     luaA_openlib(L, "awesome", awesome_lib, awesome_lib);
+    setup_awesome_signals(L);
 
     /* Export root lib */
     luaA_registerlib(L, "root", awesome_root_lib);
@@ -424,6 +713,19 @@ luaA_init(xdgHandle* xdg)
     /* Export keys */
     key_class_setup(L);
 
+    /* add XDG_CONFIG_DIR as include path */
+    const char * const *xdgconfigdirs = xdgSearchableConfigDirectories(xdg);
+    for(; *xdgconfigdirs; xdgconfigdirs++)
+    {
+        /* Append /awesome to *xdgconfigdirs */
+        const char *suffix = "/awesome";
+        size_t len = a_strlen(*xdgconfigdirs) + a_strlen(suffix) + 1;
+        char *entry = p_new(char, len);
+        a_strcat(entry, len, *xdgconfigdirs);
+        a_strcat(entry, len, suffix);
+        string_array_append(searchpath, entry);
+    }
+
     /* add Lua search paths */
     lua_getglobal(L, "package");
     if (LUA_TTABLE != lua_type(L, 1))
@@ -439,19 +741,17 @@ luaA_init(xdgHandle* xdg)
         return;
     }
 
-    /* add XDG_CONFIG_DIR as include path */
-    const char * const *xdgconfigdirs = xdgSearchableConfigDirectories(xdg);
-    for(; *xdgconfigdirs; xdgconfigdirs++)
+    foreach(entry, *searchpath)
     {
-        size_t len = a_strlen(*xdgconfigdirs);
+        size_t len = a_strlen(*entry);
         lua_pushliteral(L, ";");
-        lua_pushlstring(L, *xdgconfigdirs, len);
-        lua_pushliteral(L, "/awesome/?.lua");
+        lua_pushlstring(L, *entry, len);
+        lua_pushliteral(L, "/?.lua");
         lua_concat(L, 3);
 
         lua_pushliteral(L, ";");
-        lua_pushlstring(L, *xdgconfigdirs, len);
-        lua_pushliteral(L, "/awesome/?/init.lua");
+        lua_pushlstring(L, *entry, len);
+        lua_pushliteral(L, "/?/init.lua");
         lua_concat(L, 3);
 
         lua_concat(L, 3); /* concatenate with package.path */
@@ -466,16 +766,6 @@ luaA_init(xdgHandle* xdg)
     lua_getfield(L, 1, "loaded");
 
     lua_pop(L, 2); /* pop "package" and "package.loaded" */
-
-    signal_add(&global_signals, "debug::error");
-    signal_add(&global_signals, "debug::deprecation");
-    signal_add(&global_signals, "debug::index::miss");
-    signal_add(&global_signals, "debug::newindex::miss");
-    signal_add(&global_signals, "systray::update");
-    signal_add(&global_signals, "wallpaper_changed");
-    signal_add(&global_signals, "refresh");
-    signal_add(&global_signals, "startup");
-    signal_add(&global_signals, "exit");
 }
 
 static void
@@ -490,39 +780,41 @@ static bool
 luaA_loadrc(const char *confpath, bool run)
 {
     lua_State *L = globalconf_get_lua_State();
-    if(!luaL_loadfile(L, confpath))
-    {
-        if(run)
-        {
-            /* Set the conffile right now so it can be used inside the
-             * configuration file. */
-            conffile = a_strdup(confpath);
-            /* Move error handling function before function */
-            lua_pushcfunction(L, luaA_dofunction_on_error);
-            lua_insert(L, -2);
-            if(lua_pcall(L, 0, LUA_MULTRET, -2))
-            {
-                const char *err = lua_tostring(L, -1);
-                luaA_startup_error(err);
-                fprintf(stderr, "%s\n", err);
-                /* An error happened, so reset this. */
-                conffile = NULL;
-            }
-            else
-                return true;
-        }
-        else
-        {
-            lua_pop(L, 1);
-            return true;
-        }
-    }
-    else
+    if(luaL_loadfile(L, confpath))
     {
         const char *err = lua_tostring(L, -1);
         luaA_startup_error(err);
         fprintf(stderr, "%s\n", err);
+        lua_pop(L, 1);
+        return false;
     }
+
+    if(!run)
+    {
+        lua_pop(L, 1);
+        return true;
+    }
+
+    /* Set the conffile right now so it can be used inside the
+     * configuration file. */
+    conffile = a_strdup(confpath);
+    /* Move error handling function before function */
+    lua_pushcfunction(L, luaA_dofunction_on_error);
+    lua_insert(L, -2);
+    if(!lua_pcall(L, 0, 0, -2))
+    {
+        /* Pop luaA_dofunction_on_error */
+        lua_pop(L, 1);
+        return true;
+    }
+
+    const char *err = lua_tostring(L, -1);
+    luaA_startup_error(err);
+    fprintf(stderr, "%s\n", err);
+    /* An error happened, so reset this. */
+    conffile = NULL;
+    /* Pop luaA_dofunction_on_error() and the error message */
+    lua_pop(L, 2);
 
     return false;
 }

@@ -31,20 +31,33 @@
 /* luaa.c */
 void luaA_emit_refresh(void);
 
+/* objects/drawin.c */
+void drawin_refresh(void);
+
 /* objects/client.c */
+void client_refresh(void);
 void client_focus_refresh(void);
+void client_destroy_later(void);
+
+/* objects/screen.c */
+void screen_refresh(void);
 
 static inline int
 awesome_refresh(void)
 {
+    screen_refresh();
     luaA_emit_refresh();
+    drawin_refresh();
+    client_refresh();
     banning_refresh();
     stack_refresh();
-    client_focus_refresh();
+    client_destroy_later();
     return xcb_flush(globalconf.connection);
 }
 
-void event_handle(xcb_generic_event_t *event);
+void event_init(void);
+void event_handle(xcb_generic_event_t *);
+void event_drawable_under_mouse(lua_State *, int);
 
 #endif
 // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80

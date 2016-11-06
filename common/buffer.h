@@ -60,7 +60,7 @@ buffer_init(buffer_t *buf)
 }
 
 /** Initialize a buffer with data.
- * \param b The buffer to ini.
+ * \param b The buffer to init.
  * \param buf The data to set.
  * \param size Data size.
  */
@@ -195,3 +195,5 @@ void buffer_addf(buffer_t *buf, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
 
 #endif
+
+// vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80

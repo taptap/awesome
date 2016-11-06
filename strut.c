@@ -21,6 +21,7 @@
 
 #include "strut.h"
 #include "luaa.h"
+#include "math.h"
 
 /** Push a strut type to a table on stack.
  * \param L The Lua VM state.
@@ -31,13 +32,13 @@ int
 luaA_pushstrut(lua_State *L, strut_t strut)
 {
     lua_createtable(L, 4, 0);
-    lua_pushnumber(L, strut.left);
+    lua_pushinteger(L, strut.left);
     lua_setfield(L, -2, "left");
-    lua_pushnumber(L, strut.right);
+    lua_pushinteger(L, strut.right);
     lua_setfield(L, -2, "right");
-    lua_pushnumber(L, strut.top);
+    lua_pushinteger(L, strut.top);
     lua_setfield(L, -2, "top");
-    lua_pushnumber(L, strut.bottom);
+    lua_pushinteger(L, strut.bottom);
     lua_setfield(L, -2, "bottom");
     return 1;
 }
@@ -51,10 +52,10 @@ void
 luaA_tostrut(lua_State *L, int idx, strut_t *strut)
 {
     luaA_checktable(L, idx);
-    strut->left = luaA_getopt_number(L, idx, "left", strut->left);
-    strut->right = luaA_getopt_number(L, idx, "right", strut->right);
-    strut->top = luaA_getopt_number(L, idx, "top", strut->top);
-    strut->bottom = luaA_getopt_number(L, idx, "bottom", strut->bottom);
+    strut->left = ceil(luaA_getopt_number_range(L, idx, "left", strut->left, 0, UINT16_MAX));
+    strut->right = ceil(luaA_getopt_number_range(L, idx, "right", strut->right, 0, UINT16_MAX));
+    strut->top = ceil(luaA_getopt_number_range(L, idx, "top", strut->top, 0, UINT16_MAX));
+    strut->bottom = ceil(luaA_getopt_number_range(L, idx, "bottom", strut->bottom, 0, UINT16_MAX));
 }
 
 // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80

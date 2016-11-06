@@ -34,13 +34,6 @@
         int len, size;                                                      \
     } pfx##_array_t;
 
-#define ARRAY_TYPE_EXTRA(type_t, pfx, extra)                                \
-    typedef struct pfx##_array_t {                                          \
-        type_t *tab;                                                        \
-        int len, size;                                                      \
-        extra;                                                              \
-    } pfx##_array_t;
-
 #define foreach(var, array) \
     for(int __foreach_index_##var = 0; \
         __foreach_index_##var < (array).len; \
@@ -49,6 +42,15 @@
             (__foreach_index_##var < (array).len) &&                        \
             (var = &(array).tab[__foreach_index_##var]);                    \
             ++__foreach_index_##var)
+
+#define foreach_reverse(var, array) \
+    for(int __foreach_index_##var = (array).len-1; \
+        __foreach_index_##var > -1; \
+        __foreach_index_##var = -1) \
+        for(typeof((array).tab) var = &(array).tab[__foreach_index_##var];  \
+            (__foreach_index_##var > -1) &&                                 \
+            (var = &(array).tab[__foreach_index_##var]);                    \
+            --__foreach_index_##var)
 
 /** Common array functions */
 #define ARRAY_COMMON_FUNCS(type_t, pfx, dtor)                               \

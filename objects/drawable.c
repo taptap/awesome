@@ -20,11 +20,87 @@
  *
  */
 
+/** awesome drawable API
+ *
+ * Furthermore to the classes described here, one can also use signals as
+ * described in @{signals}.
+ *
+ * @author Uli Schlachter &lt;psychon@znc.in&gt;
+ * @copyright 2012 Uli Schlachter
+ * @classmod drawable
+ */
+
 #include "drawable.h"
 #include "common/luaobject.h"
 #include "globalconf.h"
 
 #include <cairo-xcb.h>
+
+/** Drawable object.
+ *
+ * @field surface The drawable's cairo surface.
+ * @function drawable
+ */
+
+/**
+ * @signal button::press
+ */
+
+/**
+ * @signal button::release
+ */
+
+/**
+ * @signal mouse::enter
+ */
+
+/**
+ * @signal mouse::leave
+ */
+
+/**
+ * @signal mouse::move
+ */
+
+/**
+ * @signal property::geometry
+ */
+
+/**
+ * @signal property::height
+ */
+
+/**
+ * @signal property::width
+ */
+
+/**
+ * @signal property::x
+ */
+
+/**
+ * @signal property::y
+ */
+
+/**
+ * @signal property::surface
+ */
+
+/** Get the number of instances.
+ *
+ * @return The number of drawable objects alive.
+ * @function instances
+ */
+
+/** Set a __index metamethod for all drawable instances.
+ * @tparam function cb The meta-method
+ * @function set_index_miss_handler
+ */
+
+/** Set a __newindex metamethod for all drawable instances.
+ * @tparam function cb The meta-method
+ * @function set_newindex_miss_handler
+ */
 
 static lua_class_t drawable_class;
 
@@ -81,6 +157,8 @@ drawable_set_geometry(lua_State *L, int didx, area_t geom)
         luaA_object_emit_signal(L, didx, "property::surface", 0);
     }
 
+    if (!AREA_EQUAL(old, geom))
+        luaA_object_emit_signal(L, didx, "property::geometry", 0);
     if (old.x != geom.x)
         luaA_object_emit_signal(L, didx, "property::x", 0);
     if (old.y != geom.y)
@@ -99,15 +177,18 @@ drawable_set_geometry(lua_State *L, int didx, area_t geom)
 static int
 luaA_drawable_get_surface(lua_State *L, drawable_t *drawable)
 {
-    /* Lua gets its own reference which it will have to destroy */
-    lua_pushlightuserdata(L, cairo_surface_reference(drawable->surface));
+    if (drawable->surface)
+        /* Lua gets its own reference which it will have to destroy */
+        lua_pushlightuserdata(L, cairo_surface_reference(drawable->surface));
+    else
+        lua_pushnil(L);
     return 1;
 }
 
 /** Refresh a drawable's content. This has to be called whenever some drawing to
  * the drawable's surface has been done and should become visible.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
+ *
+ * @function refresh
  */
 static int
 luaA_drawable_refresh(lua_State *L)
@@ -119,11 +200,10 @@ luaA_drawable_refresh(lua_State *L)
     return 0;
 }
 
-/** Return drawable geometry.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lreturn A table with drawable coordinates.
+/** Get drawable geometry. The geometry consists of x, y, width and height.
+ *
+ * @treturn table A table with drawable coordinates and geometry.
+ * @function geometry
  */
 static int
 luaA_drawable_geometry(lua_State *L)
@@ -159,17 +239,6 @@ drawable_class_setup(lua_State *L)
                             NULL,
                             (lua_class_propfunc_t) luaA_drawable_get_surface,
                             NULL);
-
-    signal_add(&drawable_class.signals, "button::press");
-    signal_add(&drawable_class.signals, "button::release");
-    signal_add(&drawable_class.signals, "mouse::enter");
-    signal_add(&drawable_class.signals, "mouse::leave");
-    signal_add(&drawable_class.signals, "mouse::move");
-    signal_add(&drawable_class.signals, "property::height");
-    signal_add(&drawable_class.signals, "property::width");
-    signal_add(&drawable_class.signals, "property::x");
-    signal_add(&drawable_class.signals, "property::y");
-    signal_add(&drawable_class.signals, "property::surface");
 }
 
 // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80

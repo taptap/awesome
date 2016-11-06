@@ -19,6 +19,12 @@
  *
  */
 
+/** awesome D-Bus API
+ * @author Julien Danjou &lt;julien@danjou.info&gt;
+ * @copyright 2008-2009 Julien Danjou
+ * @module dbus
+ */
+
 #include "config.h"
 #include "dbus.h"
 
@@ -129,7 +135,7 @@ a_dbus_message_iter(lua_State *L, DBusMessageIter *iter)
                     switch(array_type)
                     {
                       int datalen = 0;
-#define DBUS_MSG_HANDLE_ARRAY_TYPE_NUMBER(type, dbustype) \
+#define DBUS_MSG_HANDLE_ARRAY_TYPE_NUMBER_OR_INT(type, dbustype, pusher) \
                       case dbustype: \
                         { \
                             const type *data; \
@@ -137,19 +143,19 @@ a_dbus_message_iter(lua_State *L, DBusMessageIter *iter)
                             lua_createtable(L, datalen, 0); \
                             for(int i = 0; i < datalen; i++) \
                             { \
-                                lua_pushnumber(L, data[i]); \
+                                pusher(L, data[i]); \
                                 lua_rawseti(L, -2, i + 1); \
                             } \
                         } \
                         break;
-                      DBUS_MSG_HANDLE_ARRAY_TYPE_NUMBER(int16_t, DBUS_TYPE_INT16)
-                      DBUS_MSG_HANDLE_ARRAY_TYPE_NUMBER(uint16_t, DBUS_TYPE_UINT16)
-                      DBUS_MSG_HANDLE_ARRAY_TYPE_NUMBER(int32_t, DBUS_TYPE_INT32)
-                      DBUS_MSG_HANDLE_ARRAY_TYPE_NUMBER(uint32_t, DBUS_TYPE_UINT32)
-                      DBUS_MSG_HANDLE_ARRAY_TYPE_NUMBER(int64_t, DBUS_TYPE_INT64)
-                      DBUS_MSG_HANDLE_ARRAY_TYPE_NUMBER(uint64_t, DBUS_TYPE_UINT64)
-                      DBUS_MSG_HANDLE_ARRAY_TYPE_NUMBER(double, DBUS_TYPE_DOUBLE)
-#undef DBUS_MSG_HANDLE_ARRAY_TYPE_NUMBER
+                      DBUS_MSG_HANDLE_ARRAY_TYPE_NUMBER_OR_INT(int16_t, DBUS_TYPE_INT16, lua_pushinteger)
+                      DBUS_MSG_HANDLE_ARRAY_TYPE_NUMBER_OR_INT(uint16_t, DBUS_TYPE_UINT16, lua_pushinteger)
+                      DBUS_MSG_HANDLE_ARRAY_TYPE_NUMBER_OR_INT(int32_t, DBUS_TYPE_INT32, lua_pushinteger)
+                      DBUS_MSG_HANDLE_ARRAY_TYPE_NUMBER_OR_INT(uint32_t, DBUS_TYPE_UINT32, lua_pushinteger)
+                      DBUS_MSG_HANDLE_ARRAY_TYPE_NUMBER_OR_INT(int64_t, DBUS_TYPE_INT64, lua_pushinteger)
+                      DBUS_MSG_HANDLE_ARRAY_TYPE_NUMBER_OR_INT(uint64_t, DBUS_TYPE_UINT64, lua_pushinteger)
+                      DBUS_MSG_HANDLE_ARRAY_TYPE_NUMBER_OR_INT(double, DBUS_TYPE_DOUBLE, lua_pushnumber)
+#undef DBUS_MSG_HANDLE_ARRAY_TYPE_NUMBER_OR_INT
                       case DBUS_TYPE_BYTE:
                         {
                             const char *c;
@@ -225,23 +231,23 @@ a_dbus_message_iter(lua_State *L, DBusMessageIter *iter)
             }
             nargs++;
             break;
-#define DBUS_MSG_HANDLE_TYPE_NUMBER(type, dbustype) \
+#define DBUS_MSG_HANDLE_TYPE_NUMBER_OR_INT(type, dbustype, pusher) \
           case dbustype: \
             { \
                 type ui; \
                 dbus_message_iter_get_basic(iter, &ui); \
-                lua_pushnumber(L, ui); \
+                pusher(L, ui); \
             } \
             nargs++; \
             break;
-          DBUS_MSG_HANDLE_TYPE_NUMBER(int16_t, DBUS_TYPE_INT16)
-          DBUS_MSG_HANDLE_TYPE_NUMBER(uint16_t, DBUS_TYPE_UINT16)
-          DBUS_MSG_HANDLE_TYPE_NUMBER(int32_t, DBUS_TYPE_INT32)
-          DBUS_MSG_HANDLE_TYPE_NUMBER(uint32_t, DBUS_TYPE_UINT32)
-          DBUS_MSG_HANDLE_TYPE_NUMBER(int64_t, DBUS_TYPE_INT64)
-          DBUS_MSG_HANDLE_TYPE_NUMBER(uint64_t, DBUS_TYPE_UINT64)
-          DBUS_MSG_HANDLE_TYPE_NUMBER(double, DBUS_TYPE_DOUBLE)
-#undef DBUS_MSG_HANDLE_TYPE_NUMBER
+          DBUS_MSG_HANDLE_TYPE_NUMBER_OR_INT(int16_t, DBUS_TYPE_INT16, lua_pushinteger)
+          DBUS_MSG_HANDLE_TYPE_NUMBER_OR_INT(uint16_t, DBUS_TYPE_UINT16, lua_pushinteger)
+          DBUS_MSG_HANDLE_TYPE_NUMBER_OR_INT(int32_t, DBUS_TYPE_INT32, lua_pushinteger)
+          DBUS_MSG_HANDLE_TYPE_NUMBER_OR_INT(uint32_t, DBUS_TYPE_UINT32, lua_pushinteger)
+          DBUS_MSG_HANDLE_TYPE_NUMBER_OR_INT(int64_t, DBUS_TYPE_INT64, lua_pushinteger)
+          DBUS_MSG_HANDLE_TYPE_NUMBER_OR_INT(uint64_t, DBUS_TYPE_UINT64, lua_pushinteger)
+          DBUS_MSG_HANDLE_TYPE_NUMBER_OR_INT(double, DBUS_TYPE_DOUBLE, lua_pushnumber)
+#undef DBUS_MSG_HANDLE_TYPE_NUMBER_OR_INT
           case DBUS_TYPE_STRING:
             {
                 char *s;
@@ -308,17 +314,16 @@ a_dbus_convert_value(lua_State *L, int idx, DBusMessageIter *iter)
             dbus_message_iter_append_basic(iter, DBUS_TYPE_BOOLEAN, &b);
         }
         break;
-#define DBUS_MSG_RETURN_HANDLE_TYPE_STRING(dbustype) \
-      case dbustype: \
-        { \
-            const char *s = lua_tostring(L, idx + 1); \
-            if(s) \
-                dbus_message_iter_append_basic(iter, dbustype, &s); \
-        } \
+      case DBUS_TYPE_STRING:
+        {
+            const char *s = lua_tostring(L, idx + 1);
+            if(!s || !dbus_validate_utf8(s, NULL)) {
+                luaA_warn(L, "Your D-Bus signal handling method returned an invalid string");
+                return false;
+            }
+            dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &s);
+        }
         break;
-    DBUS_MSG_RETURN_HANDLE_TYPE_STRING(DBUS_TYPE_STRING)
-    DBUS_MSG_RETURN_HANDLE_TYPE_STRING(DBUS_TYPE_BYTE)
-#undef DBUS_MSG_RETURN_HANDLE_TYPE_STRING
 #define DBUS_MSG_RETURN_HANDLE_TYPE_NUMBER(type, dbustype) \
       case dbustype: \
         { \
@@ -326,6 +331,7 @@ a_dbus_convert_value(lua_State *L, int idx, DBusMessageIter *iter)
            dbus_message_iter_append_basic(iter, dbustype, &num); \
         } \
         break;
+    DBUS_MSG_RETURN_HANDLE_TYPE_NUMBER(uint8_t, DBUS_TYPE_BYTE)
     DBUS_MSG_RETURN_HANDLE_TYPE_NUMBER(int16_t, DBUS_TYPE_INT16)
     DBUS_MSG_RETURN_HANDLE_TYPE_NUMBER(uint16_t, DBUS_TYPE_UINT16)
     DBUS_MSG_RETURN_HANDLE_TYPE_NUMBER(int32_t, DBUS_TYPE_INT32)
@@ -383,6 +389,12 @@ a_dbus_process_request(DBusConnection *dbus_connection, DBusMessage *msg)
     s = dbus_message_get_member(msg);
     lua_pushstring(L, s);
     lua_setfield(L, -2, "member");
+
+    s = dbus_message_get_sender(msg);
+    if(s != NULL) {
+        lua_pushstring(L, s);
+        lua_setfield(L, -2, "sender");
+    }
 
     if(dbus_connection == dbus_connection_system)
         lua_pushliteral(L, "system");
@@ -666,12 +678,11 @@ a_dbus_bus_getbyname(const char *name)
 }
 
 /** Register a D-Bus name to receive message from.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lparam A string indicating if we are using system or session bus.
- * \lparam A string with the name of the D-Bus name to register.
- * \lreturn True if everything worked fine, false otherwise.
+ *
+ * @param bus A string indicating if we are using system or session bus.
+ * @param name A string with the name of the D-Bus name to register.
+ * @return True if everything worked fine, false otherwise.
+ * @function request_name
  */
 static int
 luaA_dbus_request_name(lua_State *L)
@@ -684,12 +695,11 @@ luaA_dbus_request_name(lua_State *L)
 }
 
 /** Release a D-Bus name.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lparam A string indicating if we are using system or session bus.
- * \lparam A string with the name of the D-Bus name to unregister.
- * \lreturn True if everything worked fine, false otherwise.
+ *
+ * @param bus A string indicating if we are using system or session bus.
+ * @param name A string with the name of the D-Bus name to unregister.
+ * @return True if everything worked fine, false otherwise.
+ * @function release_name
  */
 static int
 luaA_dbus_release_name(lua_State *L)
@@ -702,11 +712,10 @@ luaA_dbus_release_name(lua_State *L)
 }
 
 /** Add a match rule to match messages going through the message bus.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lparam A string indicating if we are using system or session bus.
- * \lparam A string with the name of the match rule.
+ *
+ * @param bus A string indicating if we are using system or session bus.
+ * @param name A string with the name of the match rule.
+ * @function add_match
  */
 static int
 luaA_dbus_add_match(lua_State *L)
@@ -726,11 +735,10 @@ luaA_dbus_add_match(lua_State *L)
 
 /** Remove a previously added match rule "by value"
  * (the most recently-added identical rule gets removed).
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lparam A string indicating if we are using system or session bus.
- * \lparam A string with the name of the match rule.
+ *
+ * @param bus A string indicating if we are using system or session bus.
+ * @param name A string with the name of the match rule.
+ * @function remove_match
  */
 static int
 luaA_dbus_remove_match(lua_State *L)
@@ -749,11 +757,12 @@ luaA_dbus_remove_match(lua_State *L)
 }
 
 /** Add a signal receiver on the D-Bus.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lparam A string with the interface name.
- * \lparam The function to call.
+ *
+ * @param interface A string with the interface name.
+ * @param func The function to call.
+ * @return true on success, nil + error if the signal could not be connected
+ * because another function is already connected.
+ * @function connect_signal
  */
 static int
 luaA_dbus_connect_signal(lua_State *L)
@@ -762,22 +771,23 @@ luaA_dbus_connect_signal(lua_State *L)
     luaA_checkfunction(L, 2);
     signal_t *sig = signal_array_getbyid(&dbus_signals,
                                          a_strhash((const unsigned char *) name));
-    if(sig)
+    if(sig) {
         luaA_warn(L, "cannot add signal %s on D-Bus, already existing", name);
-    else
-    {
-        signal_add(&dbus_signals, name);
+        lua_pushnil(L);
+        lua_pushfstring(L, "cannot add signal %s on D-Bus, already existing", name);
+        return 2;
+    } else {
         signal_connect(&dbus_signals, name, luaA_object_ref(L, 2));
+        lua_pushboolean(L, 1);
+        return 1;
     }
-    return 0;
 }
 
-/** Add a signal receiver on the D-Bus.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lparam A string with the interface name.
- * \lparam The function to call.
+/** Remove a signal receiver on the D-Bus.
+ *
+ * @param interface A string with the interface name.
+ * @param func The function to call.
+ * @function disconnect_signal
  */
 static int
 luaA_dbus_disconnect_signal(lua_State *L)
@@ -785,24 +795,23 @@ luaA_dbus_disconnect_signal(lua_State *L)
     const char *name = luaL_checkstring(L, 1);
     luaA_checkfunction(L, 2);
     const void *func = lua_topointer(L, 2);
-    signal_disconnect(&dbus_signals, name, func);
-    luaA_object_unref(L, func);
+    if (signal_disconnect(&dbus_signals, name, func))
+        luaA_object_unref(L, func);
     return 0;
 }
 
 /** Emit a signal on the D-Bus.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lparam A string indicating if we are using system or session bus.
- * \lparam A string with the dbus path.
- * \lparam A string with the dbus interface.
- * \lparam A string with the dbus method name.
- * \lparam type of 1st arg
- * \lparam 1st arg value
- * \lparam type of 2nd arg
- * \lparam 2nd arg value
+ *
+ * @param bus A string indicating if we are using system or session bus.
+ * @param path A string with the dbus path.
+ * @param interface A string with the dbus interface.
+ * @param method A string with the dbus method name.
+ * @param type_1st_arg type of 1st argument
+ * @param value_1st_arg value of 1st argument
+ * @param type_2nd_arg type of 2nd argument
+ * @param value_2nd_arg value of 2nd argument
  * ... etc
+ * @function emit_signal
  */
 static int
 luaA_dbus_emit_signal(lua_State *L)
@@ -813,6 +822,10 @@ luaA_dbus_emit_signal(lua_State *L)
     const char *name = luaL_checkstring(L, 4);
     DBusConnection *dbus_connection = a_dbus_bus_getbyname(bus_name);
     DBusMessage* msg = dbus_message_new_signal(path, itface, name);
+    if (msg == NULL) {
+        luaA_warn(L, "your D-Bus signal emitting method error'd");
+        return 0;
+    }
 
     DBusMessageIter iter;
     dbus_message_iter_init_append(msg, &iter);
@@ -821,7 +834,7 @@ luaA_dbus_emit_signal(lua_State *L)
 
     if(nargs % 2 != 0)
     {
-        luaA_warn(L, "your D-Bus signal emiting method has wrong number of arguments");
+        luaA_warn(L, "your D-Bus signal emitting method has wrong number of arguments");
         dbus_message_unref(msg);
         lua_pushboolean(L, 0);
         return 1;
@@ -837,6 +850,7 @@ luaA_dbus_emit_signal(lua_State *L)
     }
     dbus_connection_send(dbus_connection, msg, NULL);
     dbus_message_unref(msg);
+    dbus_connection_flush(dbus_connection);
     lua_pushboolean(L, 1);
     return 1;
 }

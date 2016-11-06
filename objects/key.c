@@ -20,38 +20,150 @@
  *
  */
 
+/** awesome key API
+ *
+ * Furthermore to the classes described here, one can also use signals as
+ * described in @{signals}.
+ *
+ * Some signal names are starting with a dot. These dots are artefacts from
+ * the documentation generation, you get the real signal name by
+ * removing the starting dot.
+ *
+ * @author Julien Danjou &lt;julien@danjou.info&gt;
+ * @copyright 2008-2009 Julien Danjou
+ * @classmod key
+ */
+
 #include "objects/key.h"
 #include "common/xutil.h"
-#include "keyresolv.h"
+#include "xkb.h"
 
 /* XStringToKeysym() and XKeysymToString */
 #include <X11/Xlib.h>
+#include <xkbcommon/xkbcommon.h>
+#include <glib.h>
+
+/** Key object.
+ *
+ * @tfield string key The key to trigger an event.
+ * @tfield string keysym Same as key, but return the name of the key symbol. It
+ *   can be identical to key, but for characters like '.' it will return
+ *   'period'.
+ * @tfield table modifiers The modifier key that should be pressed while the
+ *   key is pressed. An array with all the modifiers. Valid modifiers are: Any,
+ *   Mod1, Mod2, Mod3, Mod4, Mod5, Shift, Lock and Control.
+ * @table key
+ */
+
+/**
+ * @signal .press
+ */
+
+/**
+ * @signal property::key
+ */
+
+/**
+ * @signal property::modifiers
+ */
+
+/**
+ * @signal .release
+ */
+
+/** Get the number of instances.
+ *
+ * @return The number of key objects alive.
+ * @function instances
+ */
+
+/** Set a __index metamethod for all key instances.
+ * @tparam function cb The meta-method
+ * @function set_index_miss_handler
+ */
+
+/** Set a __newindex metamethod for all key instances.
+ * @tparam function cb The meta-method
+ * @function set_newindex_miss_handler
+ */
 
 static void
 luaA_keystore(lua_State *L, int ud, const char *str, ssize_t len)
 {
+    if(len <= 0 || !str)
+        return;
+
     keyb_t *key = luaA_checkudata(L, ud, &key_class);
-    if(len)
+
+    if(len == 1)
     {
-        if(*str != '#')
-        {
-            key->keysym = XStringToKeysym(str);
-            if(!key->keysym)
-            {
-                if(len == 1)
-                    key->keysym = *str;
-                else
-                    warn("there's no keysym named \"%s\"", str);
-            }
-            key->keycode = 0;
-        }
-        else
-        {
-            key->keycode = atoi(str + 1);
-            key->keysym = 0;
-        }
-        luaA_object_emit_signal(L, ud, "property::key", 0);
+        key->keycode = 0;
+        key->keysym = str[0];
     }
+    else if(str[0] == '#')
+    {
+        key->keycode = atoi(str + 1);
+        key->keysym = 0;
+    }
+    else
+    {
+        key->keycode = 0;
+
+        if((key->keysym = XStringToKeysym(str)) == NoSymbol )
+        {
+            glong length;
+            gunichar unicode;
+
+            if(!g_utf8_validate(str, -1, NULL))
+            {
+                luaA_warn(L, "failed to convert \"%s\" into keysym (invalid UTF-8 string)", str);
+                return;
+            }
+
+            length = g_utf8_strlen(str, -1); /* This function counts combining characters. */
+            if(length <= 0)
+            {
+                luaA_warn(L, "failed to convert \"%s\" into keysym (empty UTF-8 string)", str);
+                return;
+            }
+            else if(length > 1)
+            {
+                gchar *composed = g_utf8_normalize(str, -1, G_NORMALIZE_DEFAULT_COMPOSE);
+                if(g_utf8_strlen(composed, -1) != 1)
+                {
+                    p_delete(&composed);
+                    luaA_warn(L, "failed to convert \"%s\" into keysym (failed to compose a single character)", str);
+                    return;
+                }
+                unicode = g_utf8_get_char(composed);
+                p_delete(&composed);
+            }
+            else
+                unicode = g_utf8_get_char(str);
+
+            if(unicode == (gunichar)-1 || unicode == (gunichar)-2)
+            {
+                luaA_warn(L, "failed to convert \"%s\" into keysym (neither keysym nor single unicode)", str);
+                return;
+            }
+
+            /* Unicode-to-Keysym Conversion
+             *
+             * http://www.x.org/releases/X11R7.7/doc/xproto/x11protocol.html#keysym_encoding
+             */
+            if(unicode <= 0x0ff)
+                key->keysym = unicode;
+            else if(unicode >= 0x100 && unicode <= 0x10ffff)
+                key->keysym = unicode | (1 << 24);
+            else
+            {
+                luaA_warn(L, "failed to convert \"%s\" into keysym (unicode out of range): \"%u\"", str, unicode);
+                return;
+            }
+        }
+    }
+
+    luaA_object_emit_signal(L, ud, "property::key", 0);
 }
 
 /** Create a new key object.
@@ -162,6 +274,31 @@ luaA_key_set_modifiers(lua_State *L, keyb_t *k)
 
 LUA_OBJECT_EXPORT_PROPERTY(key, keyb_t, modifiers, luaA_pushmodifiers)
 
+/* It's caller's responsibility to release the returned string. */
+static char *
+get_keysym_name(xkb_keysym_t keysym)
+{
+    const ssize_t bufsize = 64;
+    char *buf = p_new(char, bufsize);
+    ssize_t len;
+
+    if((len = xkb_keysym_get_name(keysym, buf, bufsize)) == -1)
+    {
+        p_delete(&buf);
+        return NULL;
+    }
+    if(len + 1 > bufsize)
+    {
+        p_realloc(&buf, len + 1);
+        if(xkb_keysym_get_name(keysym, buf, len + 1) != len)
+        {
+            p_delete(&buf);
+            return NULL;
+        }
+    }
+    return buf;
+}
+
 static int
 luaA_key_get_key(lua_State *L, keyb_t *k)
 {
@@ -173,11 +310,11 @@ luaA_key_get_key(lua_State *L, keyb_t *k)
     }
     else
     {
-        char buf[MAX(MB_LEN_MAX, 32)];
-        if(!keyresolv_keysym_to_string(k->keysym, buf, countof(buf)))
+        char *name = get_keysym_name(k->keysym);
+        if(!name)
             return 0;
-
-        lua_pushstring(L, buf);
+        lua_pushstring(L, name);
+        p_delete(&name);
     }
     return 1;
 }
@@ -185,7 +322,11 @@ luaA_key_get_key(lua_State *L, keyb_t *k)
 static int
 luaA_key_get_keysym(lua_State *L, keyb_t *k)
 {
-    lua_pushstring(L, XKeysymToString(k->keysym));
+    char *name = get_keysym_name(k->keysym);
+    if(!name)
+        return 0;
+    lua_pushstring(L, name);
+    p_delete(&name);
     return 1;
 }
 
@@ -231,11 +372,6 @@ key_class_setup(lua_State *L)
                             (lua_class_propfunc_t) luaA_key_set_modifiers,
                             (lua_class_propfunc_t) luaA_key_get_modifiers,
                             (lua_class_propfunc_t) luaA_key_set_modifiers);
-
-    signal_add(&key_class.signals, "press");
-    signal_add(&key_class.signals, "property::key");
-    signal_add(&key_class.signals, "property::modifiers");
-    signal_add(&key_class.signals, "release");
 }
 
 // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80

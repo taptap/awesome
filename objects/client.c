@@ -19,6 +19,71 @@
  *
  */
 
+/** A process window.
+ *
+ * Clients are the name used by Awesome (and X11) to refer to a window. An
+ * application can have multiple clients (like for dialogs) or none at all
+ * (like command line applications). Clients are usually grouped by classes. A
+ * class is the name used by X11 to help window manager distinguish between
+ * window and write rules for them. See the `xprop` command line application. A
+ * client also have a `type` and `size_hints` used to define its behavior.
+ *
+ * ![Client geometry](../images/client_geo.svg)
+ *
+ * The client `:geometry()` return a table with *x*, *y*, *width* and *height*.
+ * The area returned **exclude the border width**. All clients also have a
+ * `shape_bounding` and `shape_clip` used to "crop" the client content. Finally,
+ * each clients can have titlebars (see `awful.titlebar`).
+ *
+ * Furthermore to the classes described here, one can also use signals as
+ * described in @{signals} and X properties as described in @{xproperties}.
+ *
+ * Some signal names are starting with a dot. These dots are artefacts from
+ * the documentation generation, you get the real signal name by
+ * removing the starting dot.
+ *
+ * Accessing client objects can be done in multiple ways depending on the
+ * context. To get the current focused client, use:
+ *
+ *    local c = client.focus
+ *
+ *    if c then
+ *        -- do something
+ *    end
+ *
+ * To get a list of all clients, use `client:get`
+ *
+ *    for _, c in ipairs(client.get()) do
+ *        -- do something
+ *    end
+ *
+ * To get a callback when a new client is added, use the `manage` signal:
+ *
+ *    client.connect_signal("manage", function(c)
+ *        -- do something
+ *    end)
+ *
+ * To be notified a property changed in a client, use:
+ *
+ *    client.connect_signal("property::name", function(c)
+ *        -- do something
+ *    end)
+ *
+ * To be notified when a property change for a specific client (assuming it is
+ * stored in the variable `c`), use:
+ *
+ *    c:connect_signal("property::name", function()
+ *        -- do something
+ *    end)
+ *
+ * To get all the clients for a screen, use either `screen.clients` or
+ * `screen.tiled_clients`
+ *
+ * @author Julien Danjou &lt;julien@danjou.info&gt;
+ * @copyright 2008-2009 Julien Danjou
+ * @classmod client
+ */
+
 #include "objects/client.h"
 #include "common/atoms.h"
 #include "common/xutil.h"
@@ -32,12 +97,692 @@
 #include "systray.h"
 #include "xwindow.h"
 
+#include "math.h"
+
 #include <xcb/xcb_atom.h>
 #include <xcb/shape.h>
 #include <cairo-xcb.h>
 
+/** Client class.
+ *
+ * @table object
+ */
+
+/** When a client gains focus.
+ * @signal .focus
+ */
+
+/** Before manage, after unmanage, and when clients swap.
+ * @signal .list
+ */
+
+/** When 2 clients are swapped
+ * @tparam client client The other client
+ * @tparam boolean is_source If self is the source or the destination of the swap
+ * @signal .swapped
+ */
+
+/**
+ * @signal .manage
+ */
+
+/**
+ * @signal button::press
+ */
+
+/**
+ * @signal button::release
+ */
+
+/**
+ * @signal mouse::enter
+ */
+
+/**
+ * @signal mouse::leave
+ */
+
+/**
+ * @signal mouse::move
+ */
+
+/**
+ * @signal property::window
+ */
+
+/** When a client should get activated (focused and/or raised).
+ *
+ * **Contexts are:**
+ *
+ * * *ewmh*: When a client ask for focus (from `X11` events)
+ * * *autofocus.check_focus*: When autofocus is enabled(from `awful.autofocus`)
+ * * *autofocus.check_focus_tag*: When autofocus is enabled
+ *   (from `awful.autofocus`)
+ * * *client.jumpto*: When a custom lua extension ask a client to be focused
+ *   (from `client.jump_to`)
+ * * *client.swap.global_bydirection*: When client swapping require a focus
+ *   change (from `awful.client.swap.bydirection`)
+ * * *client.movetotag*: When a client is moved to a new tag
+ *   (from `client.move_to_tag`)
+ * * *client.movetoscreen*: When the client is moved to a new screen
+ *   (from `client.move_to_screen`)
+ * * *client.focus.byidx*: When selecting a client using its index
+ *   (from `awful.client.focus.byidx`)
+ * * *client.focus.history.previous*: When cycling through history
+ *   (from `awful.client.focus.history.previous`)
+ * * *menu.clients*: When using the build in client menu
+ *   (from `awful.menu.clients`)
+ * * *rules*: When a new client is focused from a rule (from `awful.rules`)
+ * * *screen.focus*: When a screen is focused (from `awful.screen.focus`)
+ *
+ * Default implementation: `awful.ewmh.activate`.
+ *
+ * To implement focus stealing filters see `awful.ewmh.add_activate_filter`.
+ *
+ * @signal request::activate
+ * @tparam string context The context where this signal was used.
+ * @tparam[opt] table hints A table with additional hints:
+ * @tparam[opt=false] boolean hints.raise should the client be raised?
+ */
+
+/**
+ * @signal request::geometry
+ * @tparam client c The client
+ * @tparam string context Why and what to resize. This is used for the
+ * handlers to know if they are capable of applying the new geometry.
+ * @tparam[opt={}] table Additional arguments. Each context handler may
+ * interpret this differently.
+ */
+
+/**
+ * @signal request::tag
+ */
+
+/**
+ * @signal request::urgent
+ */
+
+/** When a client gets tagged.
+ * @signal .tagged
+ * @tag t The tag object.
+ */
+
+/** When a client gets unfocused.
+ * @signal .unfocus
+ */
+
+/**
+ * @signal .unmanage
+ */
+
+/** When a client gets untagged.
+ * @signal .untagged
+ * @tag t The tag object.
+ */
+
+/**
+ * @signal .raised
+ */
+
+/**
+ * @signal .lowered
+ */
+
+/**
+ * The focused `client` or nil (in case there is none).
+ *
+ * @tfield client focus
+ */
+
+/**
+ * The X window id.
+ *
+ * **Signal:**
+ *
+ *  * *property::window*
+ *
+ * @property window
+ * @param string
+ */
+
+/**
+ * The client title.
+ *
+ * **Signal:**
+ *
+ *  * *property::name*
+ *
+ * @property name
+ * @param string
+ */
+
+/**
+ * True if the client does not want to be in taskbar.
+ *
+ * **Signal:**
+ *
+ *  * *property::skip\_taskbar*
+ *
+ * @property skip_taskbar
+ * @param boolean
+ */
+
+/**
+ * The window type.
+ *
+ * Valid types are:
+ *
+ * * **desktop**: The root client, it cannot be moved or resized.
+ * * **dock**: A client attached to the side of the screen.
+ * * **splash**: A client, usually without titlebar shown when an application starts.
+ * * **dialog**: A dialog, see `transient_for`.
+ * * **menu**: A context menu.
+ * * **toolbar**: A floating toolbar.
+ * * **utility**:
+ * * **dropdown_menu**: A context menu attached to a parent position.
+ * * **popup_menu**: A context menu.
+ * * **notification**: A notification popup.
+ * * **combo**: A combobox list menu.
+ * * **dnd**: A drag and drop indicator.
+ * * **normal**: A normal application main window.
+ *
+ * More information can be found [here](https://specifications.freedesktop.org/wm-spec/wm-spec-latest.html#idm140200472629520)
+ *
+ * **Signal:**
+ *
+ *  * *property::type*
+ *
+ * @property type
+ * @param string
+ */
+
+/**
+ * The client class.
+ *
+ * If the client has multiple classes, the first one is used.
+ *
+ * To get a client class from the command line, use te `xprop` command.
+ *
+ * **Signal:**
+ *
+ *  * *property::class*
+ *
+ * @property class
+ * @param string
+ */
+
+/**
+ * The client instance.
+ *
+ * **Signal:**
+ *
+ *  * *property::instance*
+ *
+ * @property instance
+ * @param string
+ */
+
+/**
+ * The client PID, if available.
+ *
+ * **Signal:**
+ *
+ *  * *property::pid*
+ *
+ * @property pid
+ * @param number
+ */
+
+/**
+ * The window role, if available.
+ *
+ * **Signal:**
+ *
+ *  * *property::role*
+ *
+ * @property role
+ * @param string
+ */
+
+/**
+ * The machine client is running on.
+ *
+ * **Signal:**
+ *
+ *  * *property::machine*
+ *
+ * @property machine
+ * @param string
+ */
+
+/**
+ * The client name when iconified.
+ *
+ * **Signal:**
+ *
+ *  * *property::icon\_name*
+ *
+ * @property icon_name
+ * @param string
+ */
+
+/**
+ * The client icon.
+ *
+ * **Signal:**
+ *
+ *  * *property::icon*
+ *
+ * @property icon
+ * @param surface
+ */
+
+/**
+ * Client screen.
+ *
+ * **Signal:**
+ *
+ *  * *property::screen*
+ *
+ * @property screen
+ * @param screen
+ */
+
+/**
+ * Define if the client must be hidden, i.e. never mapped,
+ *   invisible in taskbar.
+ *
+ * **Signal:**
+ *
+ *  * *property::hidden*
+ *
+ * @property hidden
+ * @param boolean
+ */
+
+/**
+ * Define it the client must be iconify, i.e. only visible in
+ *   taskbar.
+ *
+ * **Signal:**
+ *
+ *  * *property::minimized*
+ *
+ * @property minimized
+ * @param boolean
+ */
+
+/**
+ * Honor size hints, e.g. respect size ratio.
+ *
+ * For example, a terminal such as `xterm` require the client size to be a
+ * multiple of the character size. Honoring size hints will cause the terminal
+ * window to have a small gap at the bottom.
+ *
+ * This is enabled by default. To disable it by default, see `awful.rules`.
+ *
+ * **Signal:**
+ *
+ *  * *property::size\_hints\_honor*
+ *
+ * @property size_hints_honor
+ * @param boolean
+ * @see size_hints
+ */
+
+/**
+ * The client border width.
+ * @property border_width
+ * @param integer
+ */
+
+/**
+ * The client border color.
+ *
+ * **Signal:**
+ *
+ *  * *property::border\_color*
+ *
+ * @see gears.color
+ *
+ * @property border_color
+ * @param pattern Any string, gradients and patterns will be converted to a
+ *  cairo pattern.
+ */
+
+/**
+ * The client urgent state.
+ *
+ * **Signal:**
+ *
+ *  * *property::urgent*
+ *
+ * @property urgent
+ * @param boolean
+ */
+
+/**
+ * A cairo surface for the client window content.
+ *
+ * To get the screenshot, use:
+ *
+ *    gears.surface(c.content)
+ *
+ * To save it, use:
+ *
+ *    gears.surface(c.content):write_to_png(path)
+ *
+ * @property content
+ * @param surface
+ */
+
+/**
+ * The client opacity.
+ *
+ * **Signal:**
+ *
+ *  * *property::opacity*
+ *
+ * @property opacity
+ * @param number Between 0 (transparent) to 1 (opaque)
+ */
+
+/**
+ * The client is on top of every other windows.
+ * @property ontop
+ * @param boolean
+ */
+
+/**
+ * The client is above normal windows.
+ *
+ * **Signal:**
+ *
+ *  * *property::above*
+ *
+ * @property above
+ * @param boolean
+ */
+
+/**
+ * The client is below normal windows.
+ *
+ * **Signal:**
+ *
+ *  * *property::below*
+ *
+ * @property below
+ * @param boolean
+ */
+
+/**
+ * The client is fullscreen or not.
+ *
+ * **Signal:**
+ *
+ *  * *property::fullscreen*
+ *
+ * @property fullscreen
+ * @param boolean
+ */
+
+/**
+ * The client is maximized (horizontally and vertically) or not.
+ *
+ * **Signal:**
+ *
+ *  * *property::maximized*
+ *
+ * @property maximized
+ * @param boolean
+ */
+
+/**
+ * The client is maximized horizontally or not.
+ *
+ * **Signal:**
+ *
+ *  * *property::maximized\_horizontal*
+ *
+ * @property maximized_horizontal
+ * @param boolean
+ */
+
+/**
+ * The client is maximized vertically or not.
+ *
+ * **Signal:**
+ *
+ *  * *property::maximized\_vertical*
+ *
+ * @property maximized_vertical
+ * @param boolean
+ */
+
+/**
+ * The client the window is transient for.
+ *
+ * **Signal:**
+ *
+ *  * *property::transient\_for*
+ *
+ * @property transient_for
+ * @param client
+ */
+
+/**
+ * Window identification unique to a group of windows.
+ *
+ * **Signal:**
+ *
+ *  * *property::group\_window*
+ *
+ * @property group_window
+ * @param client
+ */
+
+/**
+ * Identification unique to windows spawned by the same command.
+ * @property leader_window
+ * @param client
+ */
+
+/**
+ * A table with size hints of the client.
+ *
+ * **Signal:**
+ *
+ *  * *property::size\_hints*
+ *
+ * @property size_hints
+ * @param table
+ * @tfield integer table.user_position
+ * @tfield integer table.user_size
+ * @tfield integer table.program_position
+ * @tfield integer table.program_size
+ * @tfield integer table.max_width
+ * @tfield integer table.max_height
+ * @tfield integer table.min_width
+ * @tfield integer table.min_height
+ * @tfield integer table.width_inc
+ * @tfield integer table.height_inc
+ * @see size_hints_honor
+ */
+
+/**
+ * Set the client sticky, i.e. available on all tags.
+ *
+ * **Signal:**
+ *
+ *  * *property::sticky*
+ *
+ * @property sticky
+ * @param boolean
+ */
+
+/**
+ * Indicate if the client is modal.
+ *
+ * **Signal:**
+ *
+ *  * *property::modal*
+ *
+ * @property modal
+ * @param boolean
+ */
+
+/**
+ * True if the client can receive the input focus.
+ *
+ * **Signal:**
+ *
+ *  * *property::focusable*
+ *
+ * @property focusable
+ * @param boolean
+ */
+
+/**
+ * The client's bounding shape as set by awesome as a (native) cairo surface.
+ *
+ * **Signal:**
+ *
+ *  * *property::shape\_bounding*
+ *
+ * @see gears.surface.apply_shape_bounding
+ * @property shape_bounding
+ * @param surface
+ */
+
+/**
+ * The client's clip shape as set by awesome as a (native) cairo surface.
+ *
+ * **Signal:**
+ *
+ *  * *property::shape\_clip*
+ *
+ * @property shape_clip
+ * @param surface
+ */
+
+/**
+ * The client's bounding shape as set by the program as a (native) cairo surface.
+ *
+ * **Signal:**
+ *
+ *  * *property::shape\_client\_bounding*
+ *
+ * @property shape_client_bounding
+ * @param surface
+ */
+
+/**
+ * The client's clip shape as set by the program as a (native) cairo surface.
+ *
+ * **Signal:**
+ *
+ *  * *property::shape\_client\_clip*
+ *
+ * @property shape_client_clip
+ * @param surface
+ */
+
+/**
+ * The FreeDesktop StartId.
+ *
+ * When a client is spawned (like using a terminal or `awful.spawn`, a startup
+ * notification identifier is created. When the client is created, this
+ * identifier remain the same. This allow to match a spawn event to an actual
+ * client.
+ *
+ * **Signal:**
+ *
+ *  * *property::startup\_id*
+ *
+ * @property startup_id
+ * @param string
+ */
+
+/**
+ * If the client that this object refers to is still managed by awesome.
+ *
+ * To avoid errors, use:
+ *
+ *    local is_valid = pcall(function() return c.valid end) and c.valid
+ *
+ * **Signal:**
+ *
+ *  * *property::valid*
+ *
+ * @property valid
+ * @param boolean
+ */
+
+/**
+ * The first tag of the client.  Optimized form of `c:tags()[1]`.
+ *
+ * **Signal:**
+ *
+ *  * *property::first\_tag*
+ *
+ * @property first_tag
+ * @param tag
+ */
+
+/**
+ * The border color when the client is focused.
+ *
+ * @beautiful beautiful.border_focus
+ * @param string
+ */
+
+/**
+ * The border color when the client is not focused.
+ *
+ * @beautiful beautiful.border_normal
+ * @param string
+ */
+
+/**
+ * The client border width.
+ *
+ * @beautiful beautiful.border_width
+ * @param integer
+ */
+
+/** Return client struts (reserved space at the edge of the screen).
+ *
+ * @param struts A table with new strut values, or none.
+ * @return A table with strut values.
+ * @function struts
+ */
+
+/** Get or set mouse buttons bindings for a client.
+ *
+ * @param buttons_table An array of mouse button bindings objects, or nothing.
+ * @return A table with all buttons.
+ * @function buttons
+ */
+
+/** Get the number of instances.
+ *
+ * @return The number of client objects alive.
+ * @function instances
+ */
+
+/* Set a __index metamethod for all client instances.
+ * @tparam function cb The meta-method
+ * @function set_index_miss_handler
+ */
+
+/* Set a __newindex metamethod for all client instances.
+ * @tparam function cb The meta-method
+ * @function set_newindex_miss_handler
+ */
+
 static area_t titlebar_get_area(client_t *c, client_titlebar_t bar);
 static drawable_t *titlebar_get_drawable(lua_State *L, client_t *c, int cl_idx, client_titlebar_t bar);
+static void client_resize_do(client_t *c, area_t geometry);
 
 /** Collect a client.
  * \param L The Lua VM state.
@@ -72,21 +817,7 @@ client_set_urgent(lua_State *L, int cidx, bool urgent)
 
     if(c->urgent != urgent)
     {
-        xcb_get_property_cookie_t hints =
-            xcb_icccm_get_wm_hints_unchecked(globalconf.connection, c->window);
-
         c->urgent = urgent;
-
-        /* update ICCCM hints */
-        xcb_icccm_wm_hints_t wmh;
-        xcb_icccm_get_wm_hints_reply(globalconf.connection, hints, &wmh, NULL);
-
-        if(urgent)
-            wmh.flags |= XCB_ICCCM_WM_HINT_X_URGENCY;
-        else
-            wmh.flags &= ~XCB_ICCCM_WM_HINT_X_URGENCY;
-
-        xcb_icccm_set_wm_hints(globalconf.connection, c->window, &wmh);
 
         luaA_object_emit_signal(L, cidx, "property::urgent", 0);
     }
@@ -135,6 +866,32 @@ DO_CLIENT_SET_STRING_PROPERTY(machine)
 #undef DO_CLIENT_SET_STRING_PROPERTY
 
 void
+client_find_transient_for(client_t *c)
+{
+    int counter;
+    client_t *tc, *tmp;
+
+    tmp = tc = client_getbywin(c->transient_for_window);
+
+    /* Verify that there are no loops in the transient_for relation after we are done */
+    for(counter = 0; tmp != NULL && counter <= globalconf.stack.len; counter++)
+    {
+        if (tmp == c)
+            /* We arrived back at the client we started from, so there is a loop */
+            counter = globalconf.stack.len+1;
+        tmp = tmp->transient_for;
+    }
+    if (counter <= globalconf.stack.len)
+    {
+        lua_State *L = globalconf_get_lua_State();
+
+        luaA_object_push(L, c);
+        client_set_transient_for(L, -1, tc);
+        lua_pop(L, 1);
+    }
+}
+
+void
 client_set_class_instance(lua_State *L, int cidx, const char *class, const char *instance)
 {
     client_t *c = luaA_checkudata(L, cidx, &client_class);
@@ -146,14 +903,12 @@ client_set_class_instance(lua_State *L, int cidx, const char *class, const char 
     luaA_object_emit_signal(L, cidx, "property::instance", 0);
 }
 
-/** Returns true if a client is tagged
- * with one of the tags of the specified screen.
+/** Returns true if a client is tagged with one of the active tags.
  * \param c The client to check.
- * \param screen Virtual screen.
  * \return true if the client is visible, false otherwise.
  */
 bool
-client_maybevisible(client_t *c)
+client_on_selected_tags(client_t *c)
 {
     if(c->sticky)
         return true;
@@ -174,6 +929,16 @@ client_getbywin(xcb_window_t w)
 {
     foreach(c, globalconf.clients)
         if((*c)->window == w)
+            return *c;
+
+    return NULL;
+}
+
+client_t *
+client_getbynofocuswin(xcb_window_t w)
+{
+    foreach(c, globalconf.clients)
+        if((*c)->nofocus_window == w)
             return *c;
 
     return NULL;
@@ -259,37 +1024,36 @@ client_ban(client_t *c)
 
 /** This is part of The Bob Marley Algorithm: we ignore enter and leave window
  * in certain cases, like map/unmap or move, so we don't get spurious events.
+ * The implementation works by noting the range of sequence numbers for which we
+ * should ignore events. We grab the server to make sure that only we could
+ * generate events in this range.
  */
 void
 client_ignore_enterleave_events(void)
 {
-    foreach(c, globalconf.clients)
-    {
-        xcb_change_window_attributes(globalconf.connection,
-                                     (*c)->window,
-                                     XCB_CW_EVENT_MASK,
-                                     (const uint32_t []) { CLIENT_SELECT_INPUT_EVENT_MASK & ~(XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_LEAVE_WINDOW) });
-        xcb_change_window_attributes(globalconf.connection,
-                                     (*c)->frame_window,
-                                     XCB_CW_EVENT_MASK,
-                                     (const uint32_t []) { FRAME_SELECT_INPUT_EVENT_MASK & ~(XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_LEAVE_WINDOW) });
-    }
+    assert(globalconf.pending_enter_leave_begin.sequence == 0);
+    globalconf.pending_enter_leave_begin = xcb_grab_server(globalconf.connection);
+    /* If the connection is broken, we get a request with sequence number 0
+     * which would then trigger an assertion in
+     * client_restore_enterleave_events(). Handle this nicely.
+     */
+    if(xcb_connection_has_error(globalconf.connection))
+        fatal("X server connection broke (error %d)",
+                xcb_connection_has_error(globalconf.connection));
+    assert(globalconf.pending_enter_leave_begin.sequence != 0);
 }
 
 void
 client_restore_enterleave_events(void)
 {
-    foreach(c, globalconf.clients)
-    {
-        xcb_change_window_attributes(globalconf.connection,
-                                     (*c)->window,
-                                     XCB_CW_EVENT_MASK,
-                                     (const uint32_t []) { CLIENT_SELECT_INPUT_EVENT_MASK });
-        xcb_change_window_attributes(globalconf.connection,
-                                     (*c)->frame_window,
-                                     XCB_CW_EVENT_MASK,
-                                     (const uint32_t []) { FRAME_SELECT_INPUT_EVENT_MASK });
-    }
+    sequence_pair_t pair;
+
+    assert(globalconf.pending_enter_leave_begin.sequence != 0);
+    pair.begin = globalconf.pending_enter_leave_begin;
+    pair.end = xcb_no_operation(globalconf.connection);
+    xcb_ungrab_server(globalconf.connection);
+    globalconf.pending_enter_leave_begin.sequence = 0;
+    sequence_pair_array_append(&globalconf.ignore_enter_leave_events, pair);
 }
 
 /** Record that a client got focus.
@@ -341,17 +1105,31 @@ client_focus(client_t *c)
         globalconf.focus.need_update = true;
 }
 
+static xcb_window_t
+client_get_nofocus_window(client_t *c)
+{
+    if (c->nofocus_window == XCB_NONE) {
+        c->nofocus_window = xcb_generate_id(globalconf.connection);
+        xcb_create_window(globalconf.connection, globalconf.default_depth, c->nofocus_window, c->frame_window,
+                          -2, -2, 1, 1, 0, XCB_COPY_FROM_PARENT, globalconf.visual->visual_id,
+                          0, NULL);
+        xcb_map_window(globalconf.connection, c->nofocus_window);
+        xwindow_grabkeys(c->nofocus_window, &c->keys);
+    }
+    return c->nofocus_window;
+}
+
 void
 client_focus_refresh(void)
 {
     client_t *c = globalconf.focus.client;
-    xcb_window_t win = globalconf.screen->root;
+    xcb_window_t win = globalconf.focus.window_no_focus;
 
     if(!globalconf.focus.need_update)
         return;
     globalconf.focus.need_update = false;
 
-    if(c && client_maybevisible(c))
+    if(c && client_on_selected_tags(c))
     {
         /* Make sure this window is unbanned and e.g. not minimized */
         client_unban(c);
@@ -359,22 +1137,122 @@ client_focus_refresh(void)
         if(!c->nofocus)
             win = c->window;
         else
-            /* Focus the root window to make sure the previously focused client
-             * doesn't get any input in case WM_TAKE_FOCUS gets ignored.
-             */
-            win = globalconf.screen->root;
+            win = client_get_nofocus_window(c);
 
         if(client_hasproto(c, WM_TAKE_FOCUS))
             xwindow_takefocus(c->window);
     }
 
-    /* If nothing has the focused or the currently focused client doesn't want
+    /* If nothing has the focus or the currently focused client does not want
      * us to focus it, this sets the focus to the root window. This makes sure
      * the previously focused client actually gets unfocused. Alternatively, the
      * new client gets the input focus.
      */
     xcb_set_input_focus(globalconf.connection, XCB_INPUT_FOCUS_PARENT,
                         win, globalconf.timestamp);
+}
+
+static void
+client_border_refresh(void)
+{
+    foreach(c, globalconf.clients)
+        window_border_refresh((window_t *) *c);
+}
+
+static void
+client_geometry_refresh(void)
+{
+    bool ignored_enterleave = false;
+    foreach(_c, globalconf.clients)
+    {
+        client_t *c = *_c;
+
+        /* Compute the client window's and frame window's geometry */
+        area_t geometry = c->geometry;
+        area_t real_geometry = c->geometry;
+        if (!c->fullscreen)
+        {
+            real_geometry.x = c->titlebar[CLIENT_TITLEBAR_LEFT].size;
+            real_geometry.y = c->titlebar[CLIENT_TITLEBAR_TOP].size;
+            real_geometry.width -= c->titlebar[CLIENT_TITLEBAR_LEFT].size;
+            real_geometry.width -= c->titlebar[CLIENT_TITLEBAR_RIGHT].size;
+            real_geometry.height -= c->titlebar[CLIENT_TITLEBAR_TOP].size;
+            real_geometry.height -= c->titlebar[CLIENT_TITLEBAR_BOTTOM].size;
+        } else {
+            real_geometry.x = 0;
+            real_geometry.y = 0;
+        }
+
+        /* Is there anything to do? */
+        if (AREA_EQUAL(geometry, c->x11_frame_geometry)
+                && AREA_EQUAL(real_geometry, c->x11_client_geometry))
+            continue;
+
+        if (!ignored_enterleave) {
+            client_ignore_enterleave_events();
+            ignored_enterleave = true;
+        }
+
+        xcb_configure_window(globalconf.connection, c->frame_window,
+                XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
+                (uint32_t[]) { geometry.x, geometry.y, geometry.width, geometry.height });
+        xcb_configure_window(globalconf.connection, c->window,
+                XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
+                (uint32_t[]) { real_geometry.x, real_geometry.y, real_geometry.width, real_geometry.height });
+
+        c->x11_frame_geometry = geometry;
+        c->x11_client_geometry = real_geometry;
+
+        /* ICCCM 4.2.3 says something else, but Java always needs this... */
+        client_send_configure(c);
+    }
+    if (ignored_enterleave)
+        client_restore_enterleave_events();
+}
+
+void
+client_refresh(void)
+{
+    client_geometry_refresh();
+    client_border_refresh();
+    client_focus_refresh();
+}
+
+void
+client_destroy_later(void)
+{
+    bool ignored_enterleave = false;
+    foreach(window, globalconf.destroy_later_windows)
+    {
+        if (!ignored_enterleave) {
+            client_ignore_enterleave_events();
+            ignored_enterleave = true;
+        }
+        xcb_destroy_window(globalconf.connection, *window);
+    }
+    if (ignored_enterleave)
+        client_restore_enterleave_events();
+
+    /* Everything's done, clear the list */
+    globalconf.destroy_later_windows.len = 0;
+}
+
+static void
+border_width_callback(client_t *c, uint16_t old_width, uint16_t new_width)
+{
+    if(c->size_hints.flags & XCB_ICCCM_SIZE_HINT_P_WIN_GRAVITY)
+    {
+        area_t geometry = c->geometry;
+        int16_t diff = new_width - old_width;
+        int16_t diff_x = 0, diff_y = 0;
+        xwindow_translate_for_gravity(c->size_hints.win_gravity,
+                                      diff, diff, diff, diff,
+                                      &diff_x, &diff_y);
+        geometry.x += diff_x;
+        geometry.y += diff_y;
+        /* inform client about changes */
+        client_resize_do(c, geometry);
+    }
 }
 
 static void
@@ -431,7 +1309,7 @@ client_manage(xcb_window_t w, xcb_get_geometry_reply_t *wgeom, xcb_get_window_at
 
     if(systray_iskdedockapp(w))
     {
-        systray_request_handle(w, NULL);
+        systray_request_handle(w);
         return;
     }
 
@@ -448,6 +1326,7 @@ client_manage(xcb_window_t w, xcb_get_geometry_reply_t *wgeom, xcb_get_window_at
 
     client_t *c = client_new(L);
     xcb_screen_t *s = globalconf.screen;
+    c->border_width_callback = (void (*) (void *, uint16_t, uint16_t)) border_width_callback;
 
     /* consider the window banned */
     c->isbanned = true;
@@ -539,6 +1418,11 @@ HANDLE_GEOM(height)
     /* update all properties */
     client_update_properties(L, -1, c);
 
+    /* check if this is a TRANSIENT_FOR of another client */
+    foreach(oc, globalconf.clients)
+        if ((*oc)->transient_for_window == w)
+            client_find_transient_for(*oc);
+
     /* Then check clients hints */
     ewmh_client_check_hints(c);
 
@@ -553,8 +1437,19 @@ HANDLE_GEOM(height)
         xcb_get_property_reply(globalconf.connection, startup_id_q, NULL);
     /* Say spawn that a client has been started, with startup id as argument */
     char *startup_id = xutil_get_text_property_from_reply(reply);
-    c->startup_id = startup_id;
     p_delete(&reply);
+
+    if (startup_id == NULL && c->leader_window != XCB_NONE) {
+        /* GTK hides this property elsewhere. No idea why. */
+        startup_id_q = xcb_get_property(globalconf.connection, false,
+                                        c->leader_window, _NET_STARTUP_ID,
+                                        XCB_GET_PROPERTY_TYPE_ANY, 0, UINT_MAX);
+        reply = xcb_get_property_reply(globalconf.connection, startup_id_q, NULL);
+        startup_id = xutil_get_text_property_from_reply(reply);
+        p_delete(&reply);
+    }
+    c->startup_id = startup_id;
+
     spawn_start_notify(c, startup_id);
 
     luaA_class_emit_signal(L, &client_class, "list", 0);
@@ -613,7 +1508,7 @@ client_apply_size_hints(client_t *c, area_t geometry)
     /* Size hints are applied to the window without any decoration */
     client_remove_titlebar_geometry(c, &geometry);
 
-    if(c->size_hints.flags & XCB_ICCCM_SIZE_HINT_P_SIZE)
+    if(c->size_hints.flags & XCB_ICCCM_SIZE_HINT_BASE_SIZE)
     {
         basew = c->size_hints.base_width;
         baseh = c->size_hints.base_height;
@@ -632,7 +1527,7 @@ client_apply_size_hints(client_t *c, area_t geometry)
         minw = c->size_hints.min_width;
         minh = c->size_hints.min_height;
     }
-    else if(c->size_hints.flags & XCB_ICCCM_SIZE_HINT_P_SIZE)
+    else if(c->size_hints.flags & XCB_ICCCM_SIZE_HINT_BASE_SIZE)
     {
         /* min size is substituted with base size if not specified */
         minw = c->size_hints.base_width;
@@ -705,57 +1600,21 @@ client_apply_size_hints(client_t *c, area_t geometry)
 }
 
 static void
-client_resize_do(client_t *c, area_t geometry, bool force_notice, bool honor_hints)
+client_resize_do(client_t *c, area_t geometry)
 {
     lua_State *L = globalconf_get_lua_State();
-    bool send_notice = force_notice;
-    bool hide_titlebars = c->fullscreen;
-    screen_t *new_screen = screen_getbycoord(geometry.x, geometry.y);
 
-    if (honor_hints)
-        geometry = client_apply_size_hints(c, geometry);
-
-    if(c->geometry.width == geometry.width
-       && c->geometry.height == geometry.height)
-        send_notice = true;
+    screen_t *new_screen = c->screen;
+    if(!screen_area_in_screen(new_screen, geometry))
+        new_screen = screen_getbycoord(geometry.x, geometry.y);
 
     /* Also store geometry including border */
     area_t old_geometry = c->geometry;
     c->geometry = geometry;
 
-    /* Ignore all spurious enter/leave notify events */
-    client_ignore_enterleave_events();
-
-    /* Configure the client for its new size */
-    area_t real_geometry = geometry;
-    if (!hide_titlebars)
-    {
-        real_geometry.x = c->titlebar[CLIENT_TITLEBAR_LEFT].size;
-        real_geometry.y = c->titlebar[CLIENT_TITLEBAR_TOP].size;
-        real_geometry.width -= c->titlebar[CLIENT_TITLEBAR_LEFT].size;
-        real_geometry.width -= c->titlebar[CLIENT_TITLEBAR_RIGHT].size;
-        real_geometry.height -= c->titlebar[CLIENT_TITLEBAR_TOP].size;
-        real_geometry.height -= c->titlebar[CLIENT_TITLEBAR_BOTTOM].size;
-    } else {
-        real_geometry.x = 0;
-        real_geometry.y = 0;
-    }
-
-    xcb_configure_window(globalconf.connection, c->frame_window,
-            XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
-            (uint32_t[]) { geometry.x, geometry.y, geometry.width, geometry.height });
-    xcb_configure_window(globalconf.connection, c->window,
-            XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
-            (uint32_t[]) { real_geometry.x, real_geometry.y, real_geometry.width, real_geometry.height });
-
-    if(send_notice)
-        /* We are moving without changing the size, see ICCCM 4.2.3 */
-        client_send_configure(c);
-
-    client_restore_enterleave_events();
-
     luaA_object_push(L, c);
-    luaA_object_emit_signal(L, -1, "property::geometry", 0);
+    if (!AREA_EQUAL(old_geometry, geometry))
+        luaA_object_emit_signal(L, -1, "property::geometry", 0);
     if (old_geometry.x != geometry.x)
         luaA_object_emit_signal(L, -1, "property::x", 0);
     if (old_geometry.y != geometry.y)
@@ -782,7 +1641,7 @@ client_resize_do(client_t *c, area_t geometry, bool force_notice, bool honor_hin
         /* Convert to global coordinates */
         area.x += geometry.x;
         area.y += geometry.y;
-        if (hide_titlebars)
+        if (c->fullscreen)
             area.width = area.height = 0;
         drawable_set_geometry(L, -1, area);
 
@@ -823,25 +1682,17 @@ client_resize(client_t *c, area_t geometry, bool honor_hints)
     if(geometry.width == 0 || geometry.height == 0)
         return false;
 
-    if(c->geometry.x != geometry.x
-       || c->geometry.y != geometry.y
-       || c->geometry.width != geometry.width
-       || c->geometry.height != geometry.height)
+    if (honor_hints)
+        geometry = client_apply_size_hints(c, geometry);
+
+    if(!AREA_EQUAL(c->geometry, geometry))
     {
-        client_resize_do(c, geometry, false, honor_hints);
+        client_resize_do(c, geometry);
 
         return true;
     }
 
     return false;
-}
-
-static void
-client_emit_property_workarea_on_screen(lua_State *L, client_t *c)
-{
-    luaA_object_push(L, c->screen);
-    luaA_object_emit_signal(L, -1, "property::workarea", 0);
-    lua_pop(L, 1);
 }
 
 /** Set a client minimized, or not.
@@ -867,10 +1718,15 @@ client_set_minimized(lua_State *L, int cidx, bool s)
             xwindow_set_state(c->window, XCB_ICCCM_WM_STATE_ICONIC);
 
             uint32_t no_event[] = { 0 };
-            const uint32_t select_input_val[] = { CLIENT_SELECT_INPUT_EVENT_MASK };
+            const uint32_t client_select_input_val[] = { CLIENT_SELECT_INPUT_EVENT_MASK };
+            const uint32_t frame_select_input_val[] = { FRAME_SELECT_INPUT_EVENT_MASK };
             xcb_grab_server(globalconf.connection);
             xcb_change_window_attributes(globalconf.connection,
                                          globalconf.screen->root,
+                                         XCB_CW_EVENT_MASK,
+                                         no_event);
+            xcb_change_window_attributes(globalconf.connection,
+                                         c->frame_window,
                                          XCB_CW_EVENT_MASK,
                                          no_event);
             xcb_change_window_attributes(globalconf.connection,
@@ -883,9 +1739,13 @@ client_set_minimized(lua_State *L, int cidx, bool s)
                                          XCB_CW_EVENT_MASK,
                                          ROOT_WINDOW_EVENT_MASK);
             xcb_change_window_attributes(globalconf.connection,
+                                         c->frame_window,
+                                         XCB_CW_EVENT_MASK,
+                                         frame_select_input_val);
+            xcb_change_window_attributes(globalconf.connection,
                                          c->window,
                                          XCB_CW_EVENT_MASK,
-                                         select_input_val);
+                                         client_select_input_val);
             xcb_ungrab_server(globalconf.connection);
         }
         else
@@ -894,7 +1754,7 @@ client_set_minimized(lua_State *L, int cidx, bool s)
             xcb_map_window(globalconf.connection, c->window);
         }
         if(strut_has_value(&c->strut))
-            client_emit_property_workarea_on_screen(L, c);
+            screen_update_workarea(c->screen);
         luaA_object_emit_signal(L, cidx, "property::minimized", 0);
     }
 }
@@ -914,7 +1774,7 @@ client_set_hidden(lua_State *L, int cidx, bool s)
         c->hidden = s;
         banning_need_update();
         if(strut_has_value(&c->strut))
-            client_emit_property_workarea_on_screen(L, c);
+            screen_update_workarea(c->screen);
         luaA_object_emit_signal(L, cidx, "property::hidden", 0);
     }
 }
@@ -937,6 +1797,40 @@ client_set_sticky(lua_State *L, int cidx, bool s)
     }
 }
 
+/** Set a client focusable, or not.
+ * \param L The Lua VM state.
+ * \param cidx The client index.
+ * \param s Set or not the client's focusable property.
+ */
+static void
+client_set_focusable(lua_State *L, int cidx, bool s)
+{
+    client_t *c = luaA_checkudata(L, cidx, &client_class);
+
+    if(c->focusable != s || !c->focusable_set)
+    {
+        c->focusable = s;
+        c->focusable_set = true;
+        luaA_object_emit_signal(L, cidx, "property::focusable", 0);
+    }
+}
+
+/** Unset a client's focusable property and make it use the default again.
+ * \param L The Lua VM state.
+ * \param cidx The client index.
+ */
+static void
+client_unset_focusable(lua_State *L, int cidx)
+{
+    client_t *c = luaA_checkudata(L, cidx, &client_class);
+
+    if(c->focusable_set)
+    {
+        c->focusable_set = false;
+        luaA_object_emit_signal(L, cidx, "property::focusable", 0);
+    }
+}
+
 /** Set a client fullscreen, or not.
  * \param L The Lua VM state.
  * \param cidx The client index.
@@ -952,20 +1846,18 @@ client_set_fullscreen(lua_State *L, int cidx, bool s)
         /* become fullscreen! */
         if(s)
         {
-            /* remove any max state */
-            client_set_maximized(L, cidx, false);
             /* You can only be part of one of the special layers. */
             client_set_below(L, cidx, false);
             client_set_above(L, cidx, false);
             client_set_ontop(L, cidx, false);
         }
         int abs_cidx = luaA_absindex(L, cidx); \
-        lua_pushboolean(L, s);
+        lua_pushstring(L, "fullscreen");
         c->fullscreen = s;
-        luaA_object_emit_signal(L, abs_cidx, "request::fullscreen", 1);
+        luaA_object_emit_signal(L, abs_cidx, "request::geometry", 1);
         luaA_object_emit_signal(L, abs_cidx, "property::fullscreen", 0);
         /* Force a client resize, so that titlebars get shown/hidden */
-        client_resize_do(c, c->geometry, true, false);
+        client_resize_do(c, c->geometry);
         stack_windows();
     }
 }
@@ -993,12 +1885,10 @@ client_get_maximized(client_t *c)
         if(c->maximized_##type != s) \
         { \
             int abs_cidx = luaA_absindex(L, cidx); \
-            if(s) \
-                client_set_fullscreen(L, abs_cidx, false); \
-            lua_pushboolean(L, s); \
             int max_before = client_get_maximized(c); \
             c->maximized_##type = s; \
-            luaA_object_emit_signal(L, abs_cidx, "request::maximized_" #type, 1); \
+            lua_pushstring(L, "maximized_"#type);\
+            luaA_object_emit_signal(L, abs_cidx, "request::geometry", 1); \
             luaA_object_emit_signal(L, abs_cidx, "property::maximized_" #type, 0); \
             if(max_before != client_get_maximized(c)) \
                 luaA_object_emit_signal(L, abs_cidx, "property::maximized", 0); \
@@ -1176,12 +2066,19 @@ client_unmanage(client_t *c, bool window_valid)
     luaA_class_emit_signal(L, &client_class, "list", 0);
 
     if(strut_has_value(&c->strut))
-        client_emit_property_workarea_on_screen(L, c);
+        screen_update_workarea(c->screen);
 
     /* Get rid of all titlebars */
     for (client_titlebar_t bar = CLIENT_TITLEBAR_TOP; bar < CLIENT_TITLEBAR_COUNT; bar++) {
         if (c->titlebar[bar].drawable == NULL)
             continue;
+
+        if (globalconf.drawable_under_mouse == c->titlebar[bar].drawable) {
+            /* Leave drawable before we invalidate the client */
+            lua_pushnil(L);
+            event_drawable_under_mouse(L, -1);
+            lua_pop(L, 1);
+        }
 
         /* Forget about the drawable */
         luaA_object_push(L, c);
@@ -1209,10 +2106,9 @@ client_unmanage(client_t *c, bool window_valid)
                 c->geometry.x, c->geometry.y);
     }
 
-    /* Ignore all spurious enter/leave notify events */
-    client_ignore_enterleave_events();
-    xcb_destroy_window(globalconf.connection, c->frame_window);
-    client_restore_enterleave_events();
+    if (c->nofocus_window != XCB_NONE)
+        window_array_append(&globalconf.destroy_later_windows, c->nofocus_window);
+    window_array_append(&globalconf.destroy_later_windows, c->frame_window);
 
     if(window_valid)
     {
@@ -1262,38 +2158,53 @@ client_kill(client_t *c)
 }
 
 /** Get all clients into a table.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lparam An optional screen number.
- * \lreturn A table with all clients.
+ *
+ * @tparam[opt] integer screen A screen number to filter clients on.
+ * @tparam[opt] boolean stacked Return clients in stacking order? (ordered from
+ *   top to bottom).
+ * @treturn table A table with clients.
+ * @function get
  */
 static int
 luaA_client_get(lua_State *L)
 {
     int i = 1;
     screen_t *screen = NULL;
+    bool stacked = false;
 
     if(!lua_isnoneornil(L, 1))
         screen = luaA_checkscreen(L, 1);
 
+    if(!lua_isnoneornil(L, 2))
+        stacked = luaA_checkboolean(L, 2);
+
     lua_newtable(L);
-    foreach(c, globalconf.clients)
-        if(screen == NULL || (*c)->screen == screen)
-        {
-            luaA_object_push(L, *c);
-            lua_rawseti(L, -2, i++);
-        }
+    if(stacked)
+    {
+        foreach_reverse(c, globalconf.stack)
+            if(screen == NULL || (*c)->screen == screen)
+            {
+                luaA_object_push(L, *c);
+                lua_rawseti(L, -2, i++);
+            }
+    }
+    else
+    {
+        foreach(c, globalconf.clients)
+            if(screen == NULL || (*c)->screen == screen)
+            {
+                luaA_object_push(L, *c);
+                lua_rawseti(L, -2, i++);
+            }
+    }
 
     return 1;
 }
 
 /** Check if a client is visible on its screen.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lvalue A client.
- * \lreturn A boolean value, true if the client is visible, false otherwise.
+ *
+ * @return A boolean value, true if the client is visible, false otherwise.
+ * @function isvisible
  */
 static int
 luaA_client_isvisible(lua_State *L)
@@ -1390,10 +2301,8 @@ out:
 
 
 /** Kill a client.
- * \param L The Lua VM state.
  *
- * \luastack
- * \lvalue A client.
+ * @function kill
  */
 static int
 luaA_client_kill(lua_State *L)
@@ -1403,11 +2312,9 @@ luaA_client_kill(lua_State *L)
     return 0;
 }
 
-/** Swap a client with another one.
- * \param L The Lua VM state.
- * \luastack
- * \lvalue A client.
- * \lparam A client to swap with.
+/** Swap a client with another one in global client list.
+ * @client c A client to swap with.
+ * @function swap
  */
 static int
 luaA_client_swap(lua_State *L)
@@ -1432,16 +2339,34 @@ luaA_client_swap(lua_State *L)
         *ref_swap = c;
 
         luaA_class_emit_signal(L, &client_class, "list", 0);
+
+        luaA_object_push(L, swap);
+        lua_pushboolean(L, true);
+        luaA_object_emit_signal(L, -4, "swapped", 2);
+        lua_pop(L, 2);
+
+        luaA_object_push(L, swap);
+        luaA_object_push(L, c);
+        lua_pushboolean(L, false);
+        luaA_object_emit_signal(L, -3, "swapped", 2);
+        lua_pop(L, 3);
     }
 
     return 0;
 }
 
 /** Access or set the client tags.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \lparam A table with tags to set, or none to get the current tags table.
- * \return The clients tag.
+ *
+ * Use the `first_tag` field to access the first tag of a client directly.
+ *
+ * **Signal:**
+ *
+ *  * *property::tags*
+ *
+ * @tparam table tags_table A table with tags to set, or `nil` to get the
+ *   current tags.
+ * @treturn table A table with all tags.
+ * @function tags
  */
 static int
 luaA_client_tags(lua_State *L)
@@ -1476,7 +2401,10 @@ luaA_client_tags(lua_State *L)
         lua_pushnil(L);
         while(lua_next(L, 2))
             tag_client(L, c);
+
         lua_pop(L, 1);
+
+        luaA_object_emit_signal(L, -1, "property::tags", 0);
     }
 
     lua_newtable(L);
@@ -1490,28 +2418,56 @@ luaA_client_tags(lua_State *L)
     return 1;
 }
 
+/** Get the first tag of a client.
+ */
+static int
+luaA_client_get_first_tag(lua_State *L)
+{
+    client_t *c = luaA_checkudata(L, 1, &client_class);
+
+    foreach(tag, globalconf.tags)
+        if(is_client_tagged(c, *tag))
+        {
+            luaA_object_push(L, *tag);
+            return 1;
+        }
+
+    return 0;
+}
+
 /** Raise a client on top of others which are on the same layer.
- * \param L The Lua VM state.
- * \luastack
- * \lvalue A client.
+ *
+ * @function raise
  */
 static int
 luaA_client_raise(lua_State *L)
 {
     client_t *c = luaA_checkudata(L, 1, &client_class);
+
+    /* Avoid sending the signal if nothing was done */
+    if (c->transient_for == NULL &&
+        globalconf.stack.len &&
+        globalconf.stack.tab[globalconf.stack.len-1] == c
+    )
+        return 0;
+
     client_raise(c);
+
     return 0;
 }
 
 /** Lower a client on bottom of others which are on the same layer.
- * \param L The Lua VM state.
- * \luastack
- * \lvalue A client.
+ *
+ * @function lower
  */
 static int
 luaA_client_lower(lua_State *L)
 {
     client_t *c = luaA_checkudata(L, 1, &client_class);
+
+    /* Avoid sending the signal if nothing was done */
+    if (globalconf.stack.len && globalconf.stack.tab[0] == c)
+        return 0;
 
     stack_client_push(c);
 
@@ -1519,14 +2475,17 @@ luaA_client_lower(lua_State *L)
     for(client_t *tc = c->transient_for; tc; tc = tc->transient_for)
         stack_client_push(tc);
 
+    /* Notify the listeners */
+    luaA_object_push(L, c);
+    luaA_object_emit_signal(L, -1, "lowered", 0);
+    lua_pop(L, 1);
+
     return 0;
 }
 
 /** Stop managing a client.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lvalue A client.
+ *
+ * @function unmanage
  */
 static int
 luaA_client_unmanage(lua_State *L)
@@ -1689,29 +2648,45 @@ titlebar_resize(lua_State *L, int cidx, client_t *c, client_titlebar_t bar, int 
      * titlebars should keep its current size!) */
     area_t geometry = c->geometry;
     int change = size - c->titlebar[bar].size;
+    int16_t diff_top = 0, diff_bottom = 0, diff_right = 0, diff_left = 0;
     switch (bar) {
     case CLIENT_TITLEBAR_TOP:
         geometry.height += change;
+        diff_top = change;
         property_name = "property::titlebar_top";
         break;
     case CLIENT_TITLEBAR_BOTTOM:
         geometry.height += change;
+        diff_bottom = change;
         property_name = "property::titlebar_bottom";
         break;
     case CLIENT_TITLEBAR_RIGHT:
         geometry.width += change;
+        diff_right = change;
         property_name = "property::titlebar_right";
         break;
     case CLIENT_TITLEBAR_LEFT:
         geometry.width += change;
+        diff_left = change;
         property_name = "property::titlebar_left";
         break;
     default:
         fatal("Unknown titlebar kind %d\n", (int) bar);
     }
 
+    if(c->size_hints.flags & XCB_ICCCM_SIZE_HINT_P_WIN_GRAVITY)
+    {
+        int16_t diff_x = 0, diff_y = 0;
+        xwindow_translate_for_gravity(c->size_hints.win_gravity,
+                                      diff_left, diff_top,
+                                      diff_right, diff_bottom,
+                                      &diff_x, &diff_y);
+        geometry.x += diff_x;
+        geometry.y += diff_y;
+    }
+
     c->titlebar[bar].size = size;
-    client_resize_do(c, geometry, true, false);
+    client_resize_do(c, geometry);
 
     luaA_object_emit_signal(L, cidx, property_name, 0);
 }
@@ -1727,11 +2702,11 @@ luaA_client_titlebar_ ## name(lua_State *L)                       \
         if (lua_isnil(L, 2))                                      \
             titlebar_resize(L, 1, c, index, 0);                   \
         else                                                      \
-            titlebar_resize(L, 1, c, index, luaL_checknumber(L, 2)); \
+            titlebar_resize(L, 1, c, index, ceil(luaA_checknumber_range(L, 2, 0, MAX_X11_SIZE))); \
     }                                                             \
                                                                   \
     luaA_object_push_item(L, 1, titlebar_get_drawable(L, c, 1, index)); \
-    lua_pushnumber(L, c->titlebar[index].size);                   \
+    lua_pushinteger(L, c->titlebar[index].size);                   \
     return 2;                                                     \
 }
 HANDLE_TITLEBAR(top, CLIENT_TITLEBAR_TOP)
@@ -1740,11 +2715,10 @@ HANDLE_TITLEBAR(bottom, CLIENT_TITLEBAR_BOTTOM)
 HANDLE_TITLEBAR(left, CLIENT_TITLEBAR_LEFT)
 
 /** Return or set client geometry.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lparam A table with new coordinates, or none.
- * \lreturn A table with client coordinates.
+ *
+ * @tparam table|nil geo A table with new coordinates, or nil.
+ * @treturn table A table with client geometry and coordinates.
+ * @function geometry
  */
 static int
 luaA_client_geometry(lua_State *L)
@@ -1756,8 +2730,8 @@ luaA_client_geometry(lua_State *L)
         area_t geometry;
 
         luaA_checktable(L, 2);
-        geometry.x = luaA_getopt_number(L, 2, "x", c->geometry.x);
-        geometry.y = luaA_getopt_number(L, 2, "y", c->geometry.y);
+        geometry.x = round(luaA_getopt_number_range(L, 2, "x", c->geometry.x, MIN_X11_COORDINATE, MAX_X11_COORDINATE));
+        geometry.y = round(luaA_getopt_number_range(L, 2, "y", c->geometry.y, MIN_X11_COORDINATE, MAX_X11_COORDINATE));
         if(client_isfixed(c))
         {
             geometry.width = c->geometry.width;
@@ -1765,8 +2739,8 @@ luaA_client_geometry(lua_State *L)
         }
         else
         {
-            geometry.width = luaA_getopt_number(L, 2, "width", c->geometry.width);
-            geometry.height = luaA_getopt_number(L, 2, "height", c->geometry.height);
+            geometry.width = ceil(luaA_getopt_number_range(L, 2, "width", c->geometry.width, MIN_X11_SIZE, MAX_X11_SIZE));
+            geometry.height = ceil(luaA_getopt_number_range(L, 2, "height", c->geometry.height, MIN_X11_SIZE, MAX_X11_SIZE));
         }
 
         client_resize(c, geometry, c->size_hints_honor);
@@ -1775,14 +2749,13 @@ luaA_client_geometry(lua_State *L)
     return luaA_pusharea(L, c->geometry);
 }
 
-/** Apply size hints to a lua-specified geometry.
- * \param L The Lua VM state.
- * \return The number of elements pushed on stack.
- * \luastack
- * \lparam Desired width of client.
- * \lparam Desired height of client.
- * \lreturn Corrected width.
- * \lreturn Corrected height.
+/** Apply size hints to a size.
+ *
+ * @param width Desired width of client
+ * @param height Desired height of client
+ * @return Actual width of client
+ * @return Actual height of client
+ * @function apply_size_hints
  */
 static int
 luaA_client_apply_size_hints(lua_State *L)
@@ -1791,15 +2764,15 @@ luaA_client_apply_size_hints(lua_State *L)
     area_t geometry = c->geometry;
     if(!client_isfixed(c))
     {
-        geometry.width = luaL_checknumber(L, 2);
-        geometry.height = luaL_checknumber(L, 3);
+        geometry.width = ceil(luaA_checknumber_range(L, 2, MIN_X11_SIZE, MAX_X11_SIZE));
+        geometry.height = ceil(luaA_checknumber_range(L, 3, MIN_X11_SIZE, MAX_X11_SIZE));
     }
 
     if (c->size_hints_honor)
         geometry = client_apply_size_hints(c, geometry);
 
-    lua_pushnumber(L, geometry.width);
-    lua_pushnumber(L, geometry.height);
+    lua_pushinteger(L, geometry.width);
+    lua_pushinteger(L, geometry.height);
     return 2;
 }
 
@@ -1866,6 +2839,16 @@ luaA_client_set_icon(lua_State *L, client_t *c)
     if(!lua_isnil(L, -1))
         surf = (cairo_surface_t *)lua_touserdata(L, -1);
     client_set_icon(c, surf);
+    return 0;
+}
+
+static int
+luaA_client_set_focusable(lua_State *L, client_t *c)
+{
+    if(lua_isnil(L, -1))
+        client_unset_focusable(L, -3);
+    else
+        client_set_focusable(L, -3, luaA_checkboolean(L, -1));
     return 0;
 }
 
@@ -1946,15 +2929,16 @@ luaA_client_get_icon_name(lua_State *L, client_t *c)
     return 1;
 }
 
+LUA_OBJECT_EXPORT_OPTIONAL_PROPERTY(client, client_t, screen, luaA_object_push, NULL)
 LUA_OBJECT_EXPORT_PROPERTY(client, client_t, class, lua_pushstring)
 LUA_OBJECT_EXPORT_PROPERTY(client, client_t, instance, lua_pushstring)
-LUA_OBJECT_EXPORT_PROPERTY(client, client_t, machine, lua_pushstring)
+LUA_OBJECT_EXPORT_OPTIONAL_PROPERTY(client, client_t, machine, lua_pushstring, NULL)
 LUA_OBJECT_EXPORT_PROPERTY(client, client_t, role, lua_pushstring)
 LUA_OBJECT_EXPORT_PROPERTY(client, client_t, transient_for, luaA_object_push)
 LUA_OBJECT_EXPORT_PROPERTY(client, client_t, skip_taskbar, lua_pushboolean)
-LUA_OBJECT_EXPORT_PROPERTY(client, client_t, leader_window, lua_pushnumber)
-LUA_OBJECT_EXPORT_PROPERTY(client, client_t, group_window, lua_pushnumber)
-LUA_OBJECT_EXPORT_PROPERTY(client, client_t, pid, lua_pushnumber)
+LUA_OBJECT_EXPORT_PROPERTY(client, client_t, leader_window, lua_pushinteger)
+LUA_OBJECT_EXPORT_PROPERTY(client, client_t, group_window, lua_pushinteger)
+LUA_OBJECT_EXPORT_OPTIONAL_PROPERTY(client, client_t, pid, lua_pushinteger, 0)
 LUA_OBJECT_EXPORT_PROPERTY(client, client_t, hidden, lua_pushboolean)
 LUA_OBJECT_EXPORT_PROPERTY(client, client_t, minimized, lua_pushboolean)
 LUA_OBJECT_EXPORT_PROPERTY(client, client_t, fullscreen, lua_pushboolean)
@@ -1996,15 +2980,6 @@ luaA_client_get_content(lua_State *L, client_t *c)
 }
 
 static int
-luaA_client_get_screen(lua_State *L, client_t *c)
-{
-    if(!c->screen)
-        return 0;
-    lua_pushnumber(L, screen_get_index(c->screen));
-    return 1;
-}
-
-static int
 luaA_client_get_icon(lua_State *L, client_t *c)
 {
     if(!c->icon)
@@ -2019,8 +2994,11 @@ luaA_client_get_focusable(lua_State *L, client_t *c)
 {
     bool ret;
 
+    if (c->focusable_set)
+        ret = c->focusable;
+
     /* A client can be focused if it doesnt have the "nofocus" hint...*/
-    if (!c->nofocus)
+    else if (!c->nofocus)
         ret = true;
     else
         /* ...or if it knows the WM_TAKE_FOCUS protocol */
@@ -2045,9 +3023,9 @@ luaA_client_get_size_hints(lua_State *L, client_t *c)
     if(u_or_p)
     {
         lua_createtable(L, 0, 2);
-        lua_pushnumber(L, c->size_hints.x);
+        lua_pushinteger(L, c->size_hints.x);
         lua_setfield(L, -2, "x");
-        lua_pushnumber(L, c->size_hints.y);
+        lua_pushinteger(L, c->size_hints.y);
         lua_setfield(L, -2, "y");
         lua_setfield(L, -2, u_or_p);
         u_or_p = NULL;
@@ -2061,54 +3039,54 @@ luaA_client_get_size_hints(lua_State *L, client_t *c)
     if(u_or_p)
     {
         lua_createtable(L, 0, 2);
-        lua_pushnumber(L, c->size_hints.width);
+        lua_pushinteger(L, c->size_hints.width);
         lua_setfield(L, -2, "width");
-        lua_pushnumber(L, c->size_hints.height);
+        lua_pushinteger(L, c->size_hints.height);
         lua_setfield(L, -2, "height");
         lua_setfield(L, -2, u_or_p);
     }
 
     if(c->size_hints.flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE)
     {
-        lua_pushnumber(L, c->size_hints.min_width);
+        lua_pushinteger(L, c->size_hints.min_width);
         lua_setfield(L, -2, "min_width");
-        lua_pushnumber(L, c->size_hints.min_height);
+        lua_pushinteger(L, c->size_hints.min_height);
         lua_setfield(L, -2, "min_height");
     }
 
     if(c->size_hints.flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE)
     {
-        lua_pushnumber(L, c->size_hints.max_width);
+        lua_pushinteger(L, c->size_hints.max_width);
         lua_setfield(L, -2, "max_width");
-        lua_pushnumber(L, c->size_hints.max_height);
+        lua_pushinteger(L, c->size_hints.max_height);
         lua_setfield(L, -2, "max_height");
     }
 
     if(c->size_hints.flags & XCB_ICCCM_SIZE_HINT_P_RESIZE_INC)
     {
-        lua_pushnumber(L, c->size_hints.width_inc);
+        lua_pushinteger(L, c->size_hints.width_inc);
         lua_setfield(L, -2, "width_inc");
-        lua_pushnumber(L, c->size_hints.height_inc);
+        lua_pushinteger(L, c->size_hints.height_inc);
         lua_setfield(L, -2, "height_inc");
     }
 
     if(c->size_hints.flags & XCB_ICCCM_SIZE_HINT_P_ASPECT)
     {
-        lua_pushnumber(L, c->size_hints.min_aspect_num);
+        lua_pushinteger(L, c->size_hints.min_aspect_num);
         lua_setfield(L, -2, "min_aspect_num");
-        lua_pushnumber(L, c->size_hints.min_aspect_den);
+        lua_pushinteger(L, c->size_hints.min_aspect_den);
         lua_setfield(L, -2, "min_aspect_den");
-        lua_pushnumber(L, c->size_hints.max_aspect_num);
+        lua_pushinteger(L, c->size_hints.max_aspect_num);
         lua_setfield(L, -2, "max_aspect_num");
-        lua_pushnumber(L, c->size_hints.max_aspect_den);
+        lua_pushinteger(L, c->size_hints.max_aspect_den);
         lua_setfield(L, -2, "max_aspect_den");
     }
 
     if(c->size_hints.flags & XCB_ICCCM_SIZE_HINT_BASE_SIZE)
     {
-        lua_pushnumber(L, c->size_hints.base_width);
+        lua_pushinteger(L, c->size_hints.base_width);
         lua_setfield(L, -2, "base_width");
-        lua_pushnumber(L, c->size_hints.base_height);
+        lua_pushinteger(L, c->size_hints.base_height);
         lua_setfield(L, -2, "base_height");
     }
 
@@ -2254,12 +3232,10 @@ luaA_client_set_shape_clip(lua_State *L, client_t *c)
 }
 
 /** Get or set keys bindings for a client.
- * \param L The Lua VM state.
- * \return The number of element pushed on stack.
- * \luastack
- * \lvalue A client.
- * \lparam An array of key bindings objects, or nothing.
- * \return The array of key bindings objects of this client.
+ *
+ * @param keys_table An array of key bindings objects, or nothing.
+ * @return A table with all keys.
+ * @function keys
  */
 static int
 luaA_client_keys(lua_State *L)
@@ -2271,8 +3247,9 @@ luaA_client_keys(lua_State *L)
     {
         luaA_key_array_set(L, 1, 2, keys);
         luaA_object_emit_signal(L, 1, "property::keys", 0);
-        xcb_ungrab_key(globalconf.connection, XCB_GRAB_ANY, c->frame_window, XCB_BUTTON_MASK_ANY);
-        xwindow_grabkeys(c->frame_window, keys);
+        xwindow_grabkeys(c->window, keys);
+        if (c->nofocus_window)
+            xwindow_grabkeys(c->nofocus_window, &c->keys);
     }
 
     return luaA_key_array_get(L, 1, keys);
@@ -2317,8 +3294,11 @@ luaA_client_module_newindex(lua_State *L)
 
     if (A_STREQ(buf, "focus"))
     {
-        c = luaA_checkudata(L, 3, &client_class);
-        client_focus(c);
+        c = luaA_checkudataornil(L, 3, &client_class);
+        if (c)
+            client_focus(c);
+        else if (globalconf.focus.client)
+            client_unfocus(globalconf.focus.client);
     }
 
     return 0;
@@ -2487,9 +3467,9 @@ client_class_setup(lua_State *L)
                             (lua_class_propfunc_t) luaA_client_get_size_hints,
                             NULL);
     luaA_class_add_property(&client_class, "focusable",
-                            NULL,
+                            (lua_class_propfunc_t) luaA_client_set_focusable,
                             (lua_class_propfunc_t) luaA_client_get_focusable,
-                            NULL);
+                            (lua_class_propfunc_t) luaA_client_set_focusable);
     luaA_class_add_property(&client_class, "shape_bounding",
                             (lua_class_propfunc_t) luaA_client_set_shape_bounding,
                             (lua_class_propfunc_t) luaA_client_get_shape_bounding,
@@ -2510,67 +3490,10 @@ client_class_setup(lua_State *L)
                             NULL,
                             (lua_class_propfunc_t) luaA_client_get_client_shape_clip,
                             NULL);
-
-    signal_add(&client_class.signals, "focus");
-    signal_add(&client_class.signals, "list");
-    signal_add(&client_class.signals, "manage");
-    signal_add(&client_class.signals, "button::press");
-    signal_add(&client_class.signals, "button::release");
-    signal_add(&client_class.signals, "mouse::enter");
-    signal_add(&client_class.signals, "mouse::leave");
-    signal_add(&client_class.signals, "mouse::move");
-    signal_add(&client_class.signals, "property::above");
-    signal_add(&client_class.signals, "property::below");
-    signal_add(&client_class.signals, "property::class");
-    signal_add(&client_class.signals, "property::fullscreen");
-    signal_add(&client_class.signals, "property::geometry");
-    signal_add(&client_class.signals, "property::group_window");
-    signal_add(&client_class.signals, "property::height");
-    signal_add(&client_class.signals, "property::hidden");
-    signal_add(&client_class.signals, "property::icon");
-    signal_add(&client_class.signals, "property::icon_name");
-    signal_add(&client_class.signals, "property::instance");
-    signal_add(&client_class.signals, "property::keys");
-    signal_add(&client_class.signals, "property::machine");
-    signal_add(&client_class.signals, "property::maximized");
-    signal_add(&client_class.signals, "property::maximized_horizontal");
-    signal_add(&client_class.signals, "property::maximized_vertical");
-    signal_add(&client_class.signals, "property::minimized");
-    signal_add(&client_class.signals, "property::modal");
-    signal_add(&client_class.signals, "property::name");
-    signal_add(&client_class.signals, "property::ontop");
-    signal_add(&client_class.signals, "property::pid");
-    signal_add(&client_class.signals, "property::role");
-    signal_add(&client_class.signals, "property::screen");
-    signal_add(&client_class.signals, "property::shape_bounding");
-    signal_add(&client_class.signals, "property::shape_client_bounding");
-    signal_add(&client_class.signals, "property::shape_client_clip");
-    signal_add(&client_class.signals, "property::shape_clip");
-    signal_add(&client_class.signals, "property::size_hints_honor");
-    signal_add(&client_class.signals, "property::skip_taskbar");
-    signal_add(&client_class.signals, "property::sticky");
-    signal_add(&client_class.signals, "property::struts");
-    signal_add(&client_class.signals, "property::titlebar_bottom");
-    signal_add(&client_class.signals, "property::titlebar_left");
-    signal_add(&client_class.signals, "property::titlebar_right");
-    signal_add(&client_class.signals, "property::titlebar_top");
-    signal_add(&client_class.signals, "property::transient_for");
-    signal_add(&client_class.signals, "property::type");
-    signal_add(&client_class.signals, "property::urgent");
-    signal_add(&client_class.signals, "property::width");
-    signal_add(&client_class.signals, "property::window");
-    signal_add(&client_class.signals, "property::x");
-    signal_add(&client_class.signals, "property::y");
-    signal_add(&client_class.signals, "request::activate");
-    signal_add(&client_class.signals, "request::fullscreen");
-    signal_add(&client_class.signals, "request::maximized_horizontal");
-    signal_add(&client_class.signals, "request::maximized_vertical");
-    signal_add(&client_class.signals, "request::tag");
-    signal_add(&client_class.signals, "request::urgent");
-    signal_add(&client_class.signals, "tagged");
-    signal_add(&client_class.signals, "unfocus");
-    signal_add(&client_class.signals, "unmanage");
-    signal_add(&client_class.signals, "untagged");
+    luaA_class_add_property(&client_class, "first_tag",
+                            NULL,
+                            (lua_class_propfunc_t) luaA_client_get_first_tag,
+                            NULL);
 }
 
 // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:textwidth=80

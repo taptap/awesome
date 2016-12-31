@@ -155,7 +155,6 @@ end
 
 --- Swap 2 tags
 -- @function tag.swap
--- @see tag.swap
 -- @param tag2 The second tag
 -- @see client.swap
 function tag.object.swap(self, tag2)
@@ -209,7 +208,7 @@ function tag.add(name, props)
     -- signal is sent
     properties.screen = get_screen(properties.screen or ascreen.focused())
     -- Index is also required
-    properties.index = #raw_tags(properties.screen)+1
+    properties.index = properties.index or #raw_tags(properties.screen)+1
 
     local newtag = capi.tag{ name = name }
 
@@ -890,13 +889,25 @@ function tag.getgap(t, numclients)
     return tag.object.get_gap(t or ascreen.focused().selected_tag)
 end
 
---- The default fill policy
+--- The default fill policy.
+--
+-- ** Possible values**:
+--
+-- * *expand*: Take all the space
+-- * *master_width_factor*: Only take the ratio defined by the
+--   `master_width_factor`
 --
 -- @beautiful beautiful.master_fill_policy
 -- @param string (default: "expand")
 -- @see master_fill_policy
 
 --- Set size fill policy for the master client(s).
+--
+-- ** Possible values**:
+--
+-- * *expand*: Take all the space
+-- * *master_width_factor*: Only take the ratio defined by the
+--   `master_width_factor`
 --
 -- **Signal:**
 --
@@ -985,7 +996,7 @@ function tag.object.get_master_count(t)
         or defaults.master_count
 end
 
---- 
+---
 -- @deprecated awful.tag.setnmaster
 -- @see master_count
 -- @param nmaster The number of master windows.
@@ -1359,7 +1370,9 @@ end
 -- future. When a tag is detached from the screen, its signal is removed.
 --
 -- @function awful.tag.attached_connect_signal
--- @param screen The screen concerned, or all if nil.
+-- @screen The screen concerned, or all if nil.
+-- @tparam[opt] string Signal
+-- @tparam[opt] function Callback
 function tag.attached_connect_signal(screen, ...)
     if screen then
         attached_connect_signal_screen(screen, ...)

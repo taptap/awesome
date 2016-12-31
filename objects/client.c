@@ -21,21 +21,25 @@
 
 /** A process window.
  *
- * Clients are the name used by Awesome (and X11) to refer to a window. An
- * application can have multiple clients (like for dialogs) or none at all
- * (like command line applications). Clients are usually grouped by classes. A
- * class is the name used by X11 to help window manager distinguish between
- * window and write rules for them. See the `xprop` command line application. A
- * client also have a `type` and `size_hints` used to define its behavior.
+ * Clients are the name used by Awesome (and X11) to refer to a window.
+ *
+ * A program can have multiple clients (e.g. for dialogs) or none at all (e.g.
+ * command line applications).
+ * Clients are usually grouped by classes.
+ * A class is the name used by X11 to help the window manager distinguish
+ * between windows and write rules for them.  A client's behavior is also
+ * defined by its `type` and `size_hints` properties.
+ * See the `xprop` command line application to query properties for a client.
  *
  * ![Client geometry](../images/client_geo.svg)
  *
- * The client `:geometry()` return a table with *x*, *y*, *width* and *height*.
- * The area returned **exclude the border width**. All clients also have a
- * `shape_bounding` and `shape_clip` used to "crop" the client content. Finally,
- * each clients can have titlebars (see `awful.titlebar`).
+ * The client's `:geometry()` function returns a table with *x*, *y*, *width*
+ * and *height*.  The area returned **excludes the border width**.
+ * All clients also have a `shape_bounding` and `shape_clip` used to "crop" the
+ * client's content.
+ * Finally, each clients can have titlebars (see `awful.titlebar`).
  *
- * Furthermore to the classes described here, one can also use signals as
+ * Additionally to the classes described here, one can also use signals as
  * described in @{signals} and X properties as described in @{xproperties}.
  *
  * Some signal names are starting with a dot. These dots are artefacts from
@@ -43,41 +47,40 @@
  * removing the starting dot.
  *
  * Accessing client objects can be done in multiple ways depending on the
- * context. To get the current focused client, use:
+ * context.
+ * To get the currently focused client:
  *
  *    local c = client.focus
- *
  *    if c then
  *        -- do something
  *    end
  *
- * To get a list of all clients, use `client:get`
+ * To get a list of all clients, use `client:get`:
  *
  *    for _, c in ipairs(client.get()) do
  *        -- do something
  *    end
  *
- * To get a callback when a new client is added, use the `manage` signal:
+ * To execute a callback when a new client is added, use the `manage` signal:
  *
  *    client.connect_signal("manage", function(c)
  *        -- do something
  *    end)
  *
- * To be notified a property changed in a client, use:
+ * To be notified when a property of a client changed:
  *
  *    client.connect_signal("property::name", function(c)
  *        -- do something
  *    end)
  *
- * To be notified when a property change for a specific client (assuming it is
- * stored in the variable `c`), use:
+ * To be notified when a property of a specific client `c` changed:
  *
  *    c:connect_signal("property::name", function()
  *        -- do something
  *    end)
  *
- * To get all the clients for a screen, use either `screen.clients` or
- * `screen.tiled_clients`
+ * To get all the clients for a screen use either `screen.clients` or
+ * `screen.tiled_clients`.
  *
  * @author Julien Danjou &lt;julien@danjou.info&gt;
  * @copyright 2008-2009 Julien Danjou
@@ -154,26 +157,27 @@
  *
  * **Contexts are:**
  *
- * * *ewmh*: When a client ask for focus (from `X11` events)
- * * *autofocus.check_focus*: When autofocus is enabled(from `awful.autofocus`)
+ * * *ewmh*: When a client asks for focus (from `X11` events).
+ * * *autofocus.check_focus*: When autofocus is enabled (from
+ *   `awful.autofocus`).
  * * *autofocus.check_focus_tag*: When autofocus is enabled
- *   (from `awful.autofocus`)
- * * *client.jumpto*: When a custom lua extension ask a client to be focused
- *   (from `client.jump_to`)
- * * *client.swap.global_bydirection*: When client swapping require a focus
- *   change (from `awful.client.swap.bydirection`)
+ *   (from `awful.autofocus`).
+ * * *client.jumpto*: When a custom lua extension asks a client to be focused
+ *   (from `client.jump_to`).
+ * * *client.swap.global_bydirection*: When client swapping requires a focus
+ *   change (from `awful.client.swap.bydirection`).
  * * *client.movetotag*: When a client is moved to a new tag
- *   (from `client.move_to_tag`)
+ *   (from `client.move_to_tag`).
  * * *client.movetoscreen*: When the client is moved to a new screen
- *   (from `client.move_to_screen`)
+ *   (from `client.move_to_screen`).
  * * *client.focus.byidx*: When selecting a client using its index
- *   (from `awful.client.focus.byidx`)
+ *   (from `awful.client.focus.byidx`).
  * * *client.focus.history.previous*: When cycling through history
- *   (from `awful.client.focus.history.previous`)
- * * *menu.clients*: When using the build in client menu
- *   (from `awful.menu.clients`)
- * * *rules*: When a new client is focused from a rule (from `awful.rules`)
- * * *screen.focus*: When a screen is focused (from `awful.screen.focus`)
+ *   (from `awful.client.focus.history.previous`).
+ * * *menu.clients*: When using the builtin client menu
+ *   (from `awful.menu.clients`).
+ * * *rules*: When a new client is focused from a rule (from `awful.rules`).
+ * * *screen.focus*: When a screen is focused (from `awful.screen.focus`).
  *
  * Default implementation: `awful.ewmh.activate`.
  *
@@ -189,9 +193,9 @@
  * @signal request::geometry
  * @tparam client c The client
  * @tparam string context Why and what to resize. This is used for the
- * handlers to know if they are capable of applying the new geometry.
+ *   handlers to know if they are capable of applying the new geometry.
  * @tparam[opt={}] table Additional arguments. Each context handler may
- * interpret this differently.
+ *   interpret this differently.
  */
 
 /**
@@ -2343,13 +2347,11 @@ luaA_client_swap(lua_State *L)
         luaA_object_push(L, swap);
         lua_pushboolean(L, true);
         luaA_object_emit_signal(L, -4, "swapped", 2);
-        lua_pop(L, 2);
 
         luaA_object_push(L, swap);
         luaA_object_push(L, c);
         lua_pushboolean(L, false);
         luaA_object_emit_signal(L, -3, "swapped", 2);
-        lua_pop(L, 3);
     }
 
     return 0;

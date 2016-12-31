@@ -295,7 +295,7 @@ if(GENERATE_DOC)
         WORKING_DIRECTORY ${AWE_DOC_DIR}
         DEPENDS ${AWE_LUA_FILES} ${AWE_MD_FILES}
     )
-    list(APPEND CHECK_TARGETS check-ldoc-warnings)
+    list(APPEND CHECK_QA_TARGETS check-ldoc-warnings)
 endif()
 # }}}
 
@@ -382,6 +382,7 @@ add_custom_target(check-integration
     sh -c "CMAKE_BINARY_DIR='${CMAKE_BINARY_DIR}' ${CMAKE_SOURCE_DIR}/tests/run.sh"
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Running integration tests"
+    USES_TERMINAL
     VERBATIM)
 a_find_program(BUSTED_EXECUTABLE busted FALSE)
 if(BUSTED_EXECUTABLE)
@@ -395,7 +396,7 @@ if(BUSTED_EXECUTABLE)
     list(APPEND CHECK_TARGETS check-unit)
 
     # Same as above, but with --coverage argument
-    add_custom_target(check-coverage
+    add_custom_target(check-unit-coverage
         "BUILD_DIRECTORY=${CMAKE_BINARY_DIR}/"
         ${BUSTED_EXECUTABLE} "--helper=${CMAKE_SOURCE_DIR}/spec/preload.lua"
         "--lpath=${CMAKE_BINARY_DIR}/lib/?.lua;${CMAKE_BINARY_DIR}/lib/?/init.lua;spec/?.lua"
@@ -411,9 +412,10 @@ if(LUACHECK_EXECUTABLE)
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT "Running Luacheck"
         VERBATIM)
-    list(APPEND CHECK_TARGETS luacheck)
+    list(APPEND CHECK_QA_TARGETS luacheck)
 endif()
-add_custom_target(check DEPENDS ${CHECK_TARGETS})
+add_custom_target(check-qa DEPENDS ${CHECK_QA_TARGETS})
+add_custom_target(check DEPENDS ${CHECK_TARGETS} check-qa)
 # }}}
 
 INCLUDE(${CMAKE_SOURCE_DIR}/Packaging.cmake)

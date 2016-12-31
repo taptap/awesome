@@ -4,7 +4,7 @@ set(PROJECT_AWE_NAME awesome)
 # `git describe` later.
 set(VERSION devel)
 
-set(CODENAME "The Fox")
+set(CODENAME "Harder, Better, Faster, Stronger")
 
 project(${PROJECT_AWE_NAME} C)
 
@@ -87,7 +87,8 @@ endif()
 # {{{ Version stamp
 if(OVERRIDE_VERSION)
     set(VERSION ${OVERRIDE_VERSION})
-elseif(EXISTS ${SOURCE_DIR}/.git/HEAD AND GIT_EXECUTABLE)
+    message(STATUS "Using version from OVERRIDE_VERSION: ${VERSION}")
+elseif(EXISTS ${SOURCE_DIR}/.git AND GIT_EXECUTABLE)
     # get current version
     execute_process(
         COMMAND ${GIT_EXECUTABLE} describe --dirty
@@ -99,9 +100,11 @@ elseif(EXISTS ${SOURCE_DIR}/.git/HEAD AND GIT_EXECUTABLE)
     file(WRITE ${VERSION_STAMP_FILE} ${VERSION})
     # create a version_stamp target later
     set(BUILD_FROM_GIT TRUE)
+    message(STATUS "Using version from git: ${VERSION}")
 elseif( EXISTS ${SOURCE_DIR}/.version_stamp )
     # get version from version stamp
     file(READ ${SOURCE_DIR}/.version_stamp VERSION)
+    message(STATUS "Using version from ${SOURCE_DIR}/.version_stamp: ${VERSION}")
 endif()
 # }}}
 
@@ -115,7 +118,7 @@ endif()
 pkg_check_modules(AWESOME_COMMON_REQUIRED REQUIRED
     xcb>=1.6)
 
-pkg_check_modules(AWESOME_REQUIRED REQUIRED
+set(AWESOME_DEPENDENCIES
     glib-2.0
     gdk-pixbuf-2.0
     cairo
@@ -137,11 +140,20 @@ pkg_check_modules(AWESOME_REQUIRED REQUIRED
     libstartup-notification-1.0>=0.10
     xproto>=7.0.15
     libxdg-basedir>=1.0.0
-    xcb-xrm)
+    xcb-xrm
+)
 
-if(NOT AWESOME_REQUIRED_FOUND OR NOT AWESOME_COMMON_REQUIRED_FOUND)
-    message(FATAL_ERROR)
-endif()
+# Check the deps one by one
+foreach(dependency ${AWESOME_DEPENDENCIES})
+    pkg_check_modules(TMP_DEP REQUIRED ${dependency})
+
+    if(NOT TMP_DEP_FOUND)
+        message(FATAL_ERROR)
+    endif()
+endforeach()
+
+# Do it again, but this time with the CFLAGS/LDFLAGS
+pkg_check_modules(AWESOME_REQUIRED REQUIRED ${AWESOME_DEPENDENCIES})
 
 # On Mac OS X, the executable of Awesome has to be linked against libiconv
 # explicitly.  Unfortunately, libiconv doesn't have its pkg-config file,

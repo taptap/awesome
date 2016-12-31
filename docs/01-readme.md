@@ -19,10 +19,16 @@ After building is finished, you can either install via `make install`:
 or by auto-generating a .deb or .rpm package, for easy removal later on:
 
     make package
-    
+
     sudo dpkg -i awesome-x.y.z.deb
     # or
     sudo rpm -Uvh awesome-x.y.z.rpm
+
+NOTE: awesome uses [`cmake`](https://cmake.org) to build. In case you want to
+pass arguments to cmake, please use the `CMAKE_ARGS` environment variable. For
+instance:
+
+    CMAKE_ARGS="-DCMAKE_INSTALL_PREFIX=/opt/awesome" make
 
 ### Build dependencies
 
@@ -39,6 +45,7 @@ environment):
 - [libxcb-util >= 0.3.8](https://xcb.freedesktop.org/)
 - [libxcb-keysyms >= 0.3.4](https://xcb.freedesktop.org/)
 - [libxcb-icccm >= 0.3.8](https://xcb.freedesktop.org/)
+- [xcb-util-xrm >= 1.0](https://github.com/Airblader/xcb-util-xrm)
 - [libxkbcommon](http://xkbcommon.org/) with X11 support enabled
 - [libstartup-notification >=
   0.10](https://www.freedesktop.org/wiki/Software/startup-notification/)
@@ -129,9 +136,7 @@ for any coding, documentation or patch guidelines.
 
 ## Documentation
 
-Online documentation is available at http://awesome.naquadah.org/doc/ for the
-stable branch and at http://awesomewm.github.io/apidoc/ for the master branch.
-It can be built using `make ldoc`.
+Online documentation is available at https://awesomewm.org/apidoc/.
 
 ## License
 

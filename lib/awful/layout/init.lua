@@ -28,12 +28,8 @@ end
 
 local layout = {}
 
---- Default predefined layouts
---
--- @fixme Add documentation on available layouts as all of them are hidden
 layout.suit = require("awful.layout.suit")
 
--- The default list of layouts
 layout.layouts = {
     layout.suit.floating,
     layout.suit.tile,
@@ -52,6 +48,30 @@ layout.layouts = {
     layout.suit.corner.sw,
     layout.suit.corner.se,
 }
+
+--- The default list of layouts.
+--
+-- The default value is:
+--
+--    awful.layout.suit.floating,
+--    awful.layout.suit.tile,
+--    awful.layout.suit.tile.left,
+--    awful.layout.suit.tile.bottom,
+--    awful.layout.suit.tile.top,
+--    awful.layout.suit.fair,
+--    awful.layout.suit.fair.horizontal,
+--    awful.layout.suit.spiral,
+--    awful.layout.suit.spiral.dwindle,
+--    awful.layout.suit.max,
+--    awful.layout.suit.max.fullscreen,
+--    awful.layout.suit.magnifier,
+--    awful.layout.suit.corner.nw,
+--    awful.layout.suit.corner.ne,
+--    awful.layout.suit.corner.sw,
+--    awful.layout.suit.corner.se,
+--
+-- @field layout.layouts
+
 
 -- This is a special lock used by the arrange function.
 -- This avoids recurring call by emitted signals.
@@ -138,11 +158,11 @@ function layout.parameters(t, screen)
 
     local clients           = client.tiled(screen)
     local gap_single_client = true
-    
+
     if(t and t.gap_single_client ~= nil) then
         gap_single_client = t.gap_single_client
     end
-    
+
     local min_clients       = gap_single_client and 1 or 2
     local useless_gap       = t and (#clients >= min_clients and t.gap or 0) or 0
 

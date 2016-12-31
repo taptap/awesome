@@ -256,8 +256,8 @@ end
 --
 -- @function screen.get_bounding_geometry
 -- @tparam[opt={}] table args The arguments
--- @tparam[opt=false] boolean args.honor_padding Wether to honor the screen's padding.
--- @tparam[opt=false] boolean args.honor_workarea Wether to honor the screen's workarea.
+-- @tparam[opt=false] boolean args.honor_padding Whether to honor the screen's padding.
+-- @tparam[opt=false] boolean args.honor_workarea Whether to honor the screen's workarea.
 -- @tparam[opt] int|table args.margins Apply some margins on the output.
 --   This can either be a number or a table with *left*, *right*, *top*
 --   and *bottom* keys.
@@ -302,12 +302,16 @@ function screen.object.get_bounding_geometry(self, args)
     return geo
 end
 
---- Get the list of visible clients for the screen.
+--- The list of visible clients for the screen.
 --
 -- Minimized and unmanaged clients are not included in this list as they are
 -- technically not on the screen.
 --
 -- The clients on tags that are currently not visible are not part of this list.
+--
+-- Clients are returned using the stacking order (from top to bottom).
+-- See `get_clients` if you want them in the order used in the tasklist by
+-- default.
 --
 -- @property clients
 -- @param table The clients list, ordered from top to bottom.
@@ -315,8 +319,15 @@ end
 -- @see hidden_clients
 -- @see client.get
 
-function screen.object.get_clients(s)
-    local cls = capi.client.get(s, true)
+--- Get the list of visible clients for the screen.
+--
+-- This is used by `screen.clients` internally (with `stacked=true`).
+--
+-- @function client:get_clients
+-- @tparam[opt=true] boolean stacked Use stacking order? (top to bottom)
+-- @treturn table The clients list.
+function screen.object.get_clients(s, stacked)
+    local cls = capi.client.get(s, stacked == nil and true or stacked)
     local vcls = {}
     for _, c in pairs(cls) do
         if c:isvisible() then
@@ -347,7 +358,7 @@ function screen.object.get_hidden_clients(s)
     return vcls
 end
 
---- Get all clients assigned to the screen.
+--- All clients assigned to the screen.
 --
 -- @property all_clients
 -- @param table The clients list, ordered from top to bottom.
@@ -355,11 +366,18 @@ end
 -- @see hidden_clients
 -- @see client.get
 
-function screen.object.get_all_clients(s)
-    return capi.client.get(s, true)
+--- Get all clients assigned to the screen.
+--
+-- This is used by `all_clients` internally (with `stacked=true`).
+--
+-- @function client:get_all_clients
+-- @tparam[opt=true] boolean stacked Use stacking order? (top to bottom)
+-- @treturn table The clients list.
+function screen.object.get_all_clients(s, stacked)
+    return capi.client.get(s, stacked == nil and true or stacked)
 end
 
---- Get the list of tiled clients for the screen.
+--- Tiled clients for the screen.
 --
 -- Same as `clients`, but excluding:
 --
@@ -370,8 +388,15 @@ end
 -- @property tiled_clients
 -- @param table The clients list, ordered from top to bottom.
 
-function screen.object.get_tiled_clients(s)
-    local clients = s.clients
+--- Get tiled clients for the screen.
+--
+-- This is used by `tiles_clients` internally (with `stacked=true`).
+--
+-- @function client:get_tiled_clients
+-- @tparam[opt=true] boolean stacked Use stacking order? (top to bottom)
+-- @treturn table The clients list.
+function screen.object.get_tiled_clients(s, stacked)
+    local clients = s:get_clients(stacked)
     local tclients = {}
     -- Remove floating clients
     for _, c in pairs(clients) do

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 #
 # Process (API) docs after a successful build on Travis (via ../.travis.yml).
 #
@@ -61,6 +61,20 @@ diff -Nur . ../doc -I "Last updated" -I "<strong>Release</strong>:" \
   -I "<h2>API documentation for awesome, a highly configurable X window manager (version .*)\.</h2>" \
   -x .git | patch -p1
 
+# Create the readme
+cat > README.md <<END
+# Awesome API documentation
+
+This repository contains the built API documentation for the
+[awesome](https://github.com/awesomeWM/awesome) window manager. It is
+automatically updated via Travis when the master branch changes. Hence:
+
+## Do NOT send pull requests here
+
+Instead, please update the source code of
+[awesome](https://github.com/awesomeWM/awesome) instead.
+END
+
 git add --all .
 if git diff --cached --exit-code --quiet; then
   echo "Documentation has not changed."
@@ -76,7 +90,7 @@ COMMIT_MSG="Update docs for $AWESOME_VERSION via Travis
 Last commit message:
 $LAST_COMMIT_MSG
 
-Commits: https://github.com/awesomeWM/awesome/compare/${TRAVIS_COMMIT_RANGE}
+Commits: https://github.com/awesomeWM/awesome/compare/${TRAVIS_COMMIT_RANGE/.../..}
 Build URL: https://travis-ci.org/awesomeWM/awesome/builds/${TRAVIS_BUILD_ID}"
 git commit -m "[relevant] $COMMIT_MSG"
 

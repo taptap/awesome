@@ -900,19 +900,19 @@ function client.setwfact(wfact, c)
     t:emit_signal("property::windowfact")
 end
 
---- Increment a client's window factor
+--- Change window factor of a client.
 --
 -- @legacylayout awful.client.incwfact
--- @param add amount to increase the client's window
+-- @tparam number add Amount to increase/decrease the client's window factor.
+--   Should be between `-current_window_factor` and something close to
+--   infinite.  The normalisation then ensures that the sum of all factors is 1.
 -- @client c the client
 function client.incwfact(add, c)
     c = c or capi.client.focus
     if not c then return end
 
     local t = c.screen.selected_tag
-
     local w = client.idx(c)
-
     local data = t.windowfact or {}
     local colfact = data[w.col] or {}
     local curr = colfact[w.idx] or 1
@@ -924,12 +924,10 @@ function client.incwfact(add, c)
     t:emit_signal("property::windowfact")
 end
 
---- Get a client dockable state.
+--- Get a client's dockable state.
 --
 -- @client c A client.
--- @return True or false. Note that some windows might be dockable even if you
---   did not set them manually. For example, windows with a type "utility",
---   "toolbar" or "dock"
+-- @treturn bool
 -- @deprecated awful.client.dockable.get
 function client.dockable.get(c)
     util.deprecate("Use c.dockable instead of awful.client.dockable.get")
@@ -937,8 +935,12 @@ function client.dockable.get(c)
 end
 
 --- If the client is dockable.
+--
 -- A dockable client is an application confined to the edge of the screen. The
--- space it occupy is substracted from the `screen.workarea`.
+-- space it occupies is substracted from the `screen.workarea`.
+--
+-- Clients with a type of "utility", "toolbar" or "dock" are dockable by
+-- default.
 --
 -- **Signal:**
 --
@@ -962,7 +964,8 @@ function client.object.get_dockable(c)
     return value
 end
 
---- Set a client dockable state, overriding auto-detection.
+--- Set a client's dockable state, overriding auto-detection.
+--
 -- With this enabled you can dock windows by moving them from the center
 -- to the edge of the workarea.
 --
